@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "signal_gen.c"
+        "control.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        driver
+        console
+)
