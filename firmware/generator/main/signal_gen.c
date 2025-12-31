@@ -190,12 +190,12 @@ static void generate_waveform(uint8_t *buf, size_t len)
  * @post DAC is enabled and ready for output
  * @post wave_buffer contains initial waveform
  */
-void signal_gen_init(void)
-{
+void signal_gen_init(void) {
     ESP_LOGI(TAG, "Initializing DAC signal generator");
 
     dac_continuous_config_t dac_cfg = {
-        .chan_mask = DAC_CHANNEL_MASK_ALL,
+        // FIX: Use only the channel we need
+        .chan_mask = DAC_CHANNEL_MASK_CH0,  // Changed from DAC_CHANNEL_MASK_ALL
         .desc_num = 8,
         .buf_size = WAVE_TABLE_SIZE,
         .freq_hz = SAMPLE_RATE_HZ,
@@ -215,6 +215,22 @@ void signal_gen_init(void)
 }
 
 /**
+ * @brief Broadcast configuration label via UART
+ * 
+ * Sends current configuration in machine-readable format for synchronization
+ * with acquisition device.
+ */
+void signal_gen_broadcast_label(void) {
+    // Format: "SYNC LABEL wave=%d freq=%lu amp=%.2f noise=%.3f offset=%.2f\n"
+    printf("SYNC LABEL wave=%d freq=%lu amp=%.2f noise=%.3f offset=%.2f\n",
+           current_cfg.wave,
+           current_cfg.frequency_hz,
+           current_cfg.amplitude,
+           current_cfg.noise_std,
+           current_cfg.dc_offset);
+}
+
+/**
  * @brief Update signal generator configuration
  * 
  * Applies new configuration parameters and regenerates the waveform.
@@ -227,15 +243,32 @@ void signal_gen_init(void)
  * 
  * @throws ESP_ERR_INVALID_ARG if dac_handle is invalid
  */
-void signal_gen_set_config(const signal_gen_config_t *cfg)
-{
-    memcpy(&current_cfg, cfg, sizeof(signal_gen_config_t));
+void signal_gen_set_config(const signal_gen_config_t *cfg) {
+    // Validate configuration before applying
+    if (!validate_config(cfg)) {
+        ESP_LOGW(TAG, "Configuration validation failed, using safe defaults");
+        // Apply safe defaults for invalid values
+        signal_gen_config_t safe_cfg = *cfg;
+        safe_cfg.frequency_hz = MIN(safe_cfg.frequency_hz, SAMPLE_RATE_HZ / 4);
+        safe_cfg.amplitude = clamp(safe_cfg.amplitude, 0.0f, 1.0f);
+        safe_cfg.noise_std = MAX(safe_cfg.noise_std, 0.0f);
+        safe_cfg.dc_offset = clamp(safe_cfg.dc_offset, -1.0f, 1.0f);
+        safe_cfg.wave = (signal_wave_t)clamp((float)safe_cfg.wave, 
+                                           (float)SIGNAL_WAVE_SINE, 
+                                           (float)SIGNAL_WAVE_SAWTOOTH);
+        memcpy(&current_cfg, &safe_cfg, sizeof(signal_gen_config_t));
+    } else {
+        memcpy(&current_cfg, cfg, sizeof(signal_gen_config_t));
+    }
     
     // Reset phase accumulator when configuration changes
     phase_accumulator = 0.0f;
-
-    /* regenerate waveform with new parameters */
+    
+    // Regenerate waveform with new parameters
     generate_waveform(wave_buffer, WAVE_TABLE_SIZE);
+    
+    // FIX: Broadcast label change for synchronization
+    signal_gen_broadcast_label();
     
     // Update DAC with new waveform if currently running
     if (running) {
@@ -246,6 +279,55 @@ void signal_gen_set_config(const signal_gen_config_t *cfg)
             NULL
         ));
     }
+}
+
+/**
+ * @brief Validate signal generator configuration
+ * 
+ * Checks if the provided configuration parameters are within acceptable
+ * ranges and constraints. Logs warnings for any invalid parameters.
+ * 
+ * @param[in] cfg Pointer to configuration structure to validate
+ * @return true if configuration is valid, false otherwise
+ * 
+ * @note Frequency should not exceed Nyquist limit (SAMPLE_RATE_HZ / 4)
+ * @note Amplitude must be in range [0.0, 1.0]
+ * @note Noise standard deviation must be non-negative
+ * @note DC offset must be in range [-1.0, 1.0]
+ */
+static bool validate_config(const signal_gen_config_t *cfg) {
+    // Frequency validation (Nyquist limit)
+    if (cfg->frequency_hz > SAMPLE_RATE_HZ / 4) {
+        ESP_LOGW(TAG, "Frequency %lu Hz may cause aliasing (max: %d Hz)", 
+                cfg->frequency_hz, SAMPLE_RATE_HZ / 4);
+        return false;
+    }
+    
+    // Amplitude validation
+    if (cfg->amplitude < 0.0f || cfg->amplitude > 1.0f) {
+        ESP_LOGW(TAG, "Amplitude must be in range [0.0, 1.0]");
+        return false;
+    }
+    
+    // Noise validation
+    if (cfg->noise_std < 0.0f) {
+        ESP_LOGW(TAG, "Noise standard deviation cannot be negative");
+        return false;
+    }
+    
+    // DC offset validation
+    if (fabsf(cfg->dc_offset) > 1.0f) {
+        ESP_LOGW(TAG, "DC offset must be in range [-1.0, 1.0]");
+        return false;
+    }
+    
+    // Waveform validation
+    if (cfg->wave < SIGNAL_WAVE_SINE || cfg->wave > SIGNAL_WAVE_SAWTOOTH) {
+        ESP_LOGW(TAG, "Invalid waveform type: %d", cfg->wave);
+        return false;
+    }
+    
+    return true;
 }
 
 /**

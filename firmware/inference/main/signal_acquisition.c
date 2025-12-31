@@ -36,6 +36,7 @@ static TaskHandle_t s_capture_task_handle = NULL;       /**< Handle for capture 
 static SemaphoreHandle_t s_stats_mutex = NULL;          /**< Mutex for statistics protection */
 static adc_continuous_handle_t s_adc_handle = NULL;     /**< ADC continuous mode handle */
 static volatile bool s_capture_running = false;         /**< Capture state flag */
+static signal_wave_t s_current_label = SIGNAL_WAVE_SINE;  /**< Current ground truth label from generator */
 
 // Circular buffer
 static uint16_t s_circular_buffer[CIRCULAR_BUFFER_SIZE]; /**< Circular buffer for raw samples */
@@ -119,6 +120,20 @@ static void continuous_adc_init(void) {
 
     ESP_ERROR_CHECK(adc_continuous_config(s_adc_handle, &dig_cfg));
 }
+/**
+ * @brief Update current ground truth label
+ * 
+ * Updates the current signal label used for window metadata.
+ * This function is thread-safe and can be called from any context.
+ * 
+ * @param[in] label New ground truth label from signal generator
+ * 
+ * @post s_current_label is updated
+ */
+void signal_acquisition_update_label(signal_wave_t label) {
+    s_current_label = label;
+    ESP_LOGI(TAG, "Label updated to: %d", label);
+}
 
 /**
  * @brief Extract overlapping window from circular buffer
@@ -138,11 +153,26 @@ static void extract_window(void) {
     static uint16_t window[WINDOW_SIZE];
     
     // Check if we have enough samples
-    uint32_t available_samples = (s_circular_buffer_write_idx + CIRCULAR_BUFFER_SIZE - s_circular_buffer_read_idx) 
-                                 % CIRCULAR_BUFFER_SIZE;
+    uint32_t available_samples;
+    if (s_circular_buffer_write_idx >= s_circular_buffer_read_idx) {
+        available_samples = s_circular_buffer_write_idx - s_circular_buffer_read_idx;
+    } else {
+        available_samples = CIRCULAR_BUFFER_SIZE - s_circular_buffer_read_idx + 
+                           s_circular_buffer_write_idx;
+    }
+
     if (available_samples < WINDOW_SIZE) {
         return;
     }
+
+    xSemaphoreTake(s_stats_mutex, portMAX_DELAY);
+    if (s_stats.buffer_overruns > 0) {
+        // Reset read index after overrun to maintain synchronization
+        s_circular_buffer_read_idx = 
+            (s_circular_buffer_write_idx - WINDOW_SIZE + CIRCULAR_BUFFER_SIZE) 
+            % CIRCULAR_BUFFER_SIZE;
+    }
+    xSemaphoreGive(s_stats_mutex);
 
     // Extract window
     for (int i = 0; i < WINDOW_SIZE; i++) {
@@ -156,9 +186,19 @@ static void extract_window(void) {
     window_buffer_t window_buf = {
         .timestamp_us = esp_timer_get_time(),
         .window_id = s_window_counter++,
-        .sample_rate_hz = SAMPLING_RATE_HZ
+        .sample_rate_hz = SAMPLING_RATE_HZ,
+        .sequence_number = s_window_counter,  // FIX: Sequence tracking
+        .label = s_current_label,             // FIX: Ground truth label
+        .checksum = 0                         // FIX: Will calculate below
     };
     memcpy(window_buf.samples, window, sizeof(window));
+
+    // Calculate simple checksum for data integrity
+    uint32_t checksum = 0;
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+        checksum += window[i];
+    }
+    window_buf.checksum = checksum;
 
     // Send to queue
     if (s_window_queue && s_capture_running) {
@@ -192,13 +232,18 @@ static void capture_task(void *arg) {
     uint32_t bytes_read = 0;
     
     ESP_LOGI(TAG, "Capture task started");
-
+    
     while (s_capture_running) {
+        // Wait for ADC conversion notification
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         
-        if (!s_capture_running) break;
+        if (!s_capture_running) {
+            break;
+        }
         
-        esp_err_t ret = adc_continuous_read(s_adc_handle, raw_buffer, ADC_FRAME_BYTES, &bytes_read, 0);
+        esp_err_t ret = adc_continuous_read(s_adc_handle, raw_buffer, 
+                                           ADC_FRAME_BYTES, &bytes_read, 0);
+
         
         if (ret == ESP_OK && bytes_read > 0) {
             for (int i = 0; i < bytes_read; i += SOC_ADC_DIGI_RESULT_BYTES) {
@@ -310,8 +355,15 @@ void signal_acquisition_start(void) {
         s_capture_running = true;
         ESP_ERROR_CHECK(adc_continuous_start(s_adc_handle));
         
-        // Create capture task
-        xTaskCreate(capture_task, "capture_task", 4096, NULL, 5, &s_capture_task_handle);
+        // FIX: Create a proper FreeRTOS task instead of calling capture_task directly
+        xTaskCreate(
+            capture_task,
+            "capture_task",
+            8192,  // Increased stack size for safety
+            NULL,
+            5,  // Priority
+            &s_capture_task_handle
+        );
         ESP_LOGI(TAG, "Signal acquisition started");
     }
 }

@@ -34,10 +34,13 @@
  * for timestamping, identification, and sample rate information.
  */
 typedef struct {
-    uint16_t samples[WINDOW_SIZE];    /**< Array of ADC samples (12-bit values) */
-    uint64_t timestamp_us;            /**< Microsecond timestamp from system start */
+    uint16_t samples[WINDOW_SIZE];    /**< Array of ADC samples */
+    uint64_t timestamp_us;            /**< Microsecond timestamp */
     uint32_t window_id;               /**< Sequential window identifier */
-    float sample_rate_hz;             /**< Actual sampling rate (may differ from nominal) */
+    float sample_rate_hz;             /**< Actual sampling rate */
+    uint32_t sequence_number;         /**< FIX: Sequence number for dataset integrity */
+    signal_wave_t label;              /**< FIX: Ground truth label from generator */
+    uint32_t checksum;                /**< FIX: Data integrity check */
 } window_buffer_t;
 
 /**
