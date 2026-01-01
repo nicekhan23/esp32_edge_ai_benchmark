@@ -27,6 +27,18 @@
 #define WINDOW_OVERLAP               128    /**< Overlap between consecutive windows */
 #define CIRCULAR_BUFFER_SIZE         1024   /**< Size of circular buffer for raw samples */
 
+// Add after line 13 (after #include statements)
+/**
+ * @brief Signal type enumeration (ground truth labels)
+ */
+typedef enum {
+    SIGNAL_WAVE_SINE = 0,
+    SIGNAL_WAVE_SQUARE = 1,
+    SIGNAL_WAVE_TRIANGLE = 2,
+    SIGNAL_WAVE_SAWTOOTH = 3,
+    SIGNAL_WAVE_UNKNOWN = 255
+} signal_wave_t;
+
 /**
  * @brief Window buffer structure containing processed signal data
  * 
@@ -94,6 +106,18 @@ QueueHandle_t signal_acquisition_get_window_queue(void);
  * @note Statistics are cumulative since system start
  */
 acquisition_stats_t signal_acquisition_get_stats(void);
+
+/**
+ * @brief Update the current ground truth label
+ * 
+ * Sets the current signal type label used for newly captured windows.
+ * This allows dynamic updating of the expected signal type during acquisition.
+ * 
+ * @param[in] label New ground truth label to set
+ * 
+ * @note Thread-safe operation
+ */
+void signal_acquisition_update_label(signal_wave_t label);
 
 /**
  * @brief Start signal acquisition

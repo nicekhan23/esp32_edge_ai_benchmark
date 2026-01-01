@@ -95,6 +95,17 @@ void signal_gen_stop(void);
 void signal_gen_set_config(const signal_gen_config_t *cfg);
 
 /**
+ * @brief Validate signal generator configuration
+ * 
+ * Checks the provided configuration structure for valid parameter ranges.
+ * Returns true if all parameters are valid, false otherwise.
+ * 
+ * @param[in] cfg Pointer to configuration structure to validate
+ * @return true if configuration is valid, false otherwise
+ */
+static bool validate_config(const signal_gen_config_t *cfg);
+
+/**
  * @brief Get current signal generator configuration
  * 
  * Returns a pointer to the current configuration structure. This can be used

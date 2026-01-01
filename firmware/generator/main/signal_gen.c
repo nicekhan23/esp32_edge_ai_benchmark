@@ -221,7 +221,6 @@ void signal_gen_init(void) {
  * with acquisition device.
  */
 void signal_gen_broadcast_label(void) {
-    // Format: "SYNC LABEL wave=%d freq=%lu amp=%.2f noise=%.3f offset=%.2f\n"
     printf("SYNC LABEL wave=%d freq=%lu amp=%.2f noise=%.3f offset=%.2f\n",
            current_cfg.wave,
            current_cfg.frequency_hz,
