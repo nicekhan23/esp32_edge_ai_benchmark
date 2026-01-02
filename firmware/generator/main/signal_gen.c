@@ -43,6 +43,14 @@
 #define WAVE_TABLE_SIZE    400             /**< Size of waveform buffer in samples */
 #define DAC_MAX            255             /**< Maximum DAC value (8-bit) */
 
+#ifndef MIN
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#endif
+
+#ifndef MAX
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+#endif
+
 /* ================== Module State Variables ================== */
 
 static dac_continuous_handle_t dac_handle = NULL;      /**< DAC driver handle */
@@ -294,7 +302,7 @@ void signal_gen_set_config(const signal_gen_config_t *cfg) {
  * @note Noise standard deviation must be non-negative
  * @note DC offset must be in range [-1.0, 1.0]
  */
-static bool validate_config(const signal_gen_config_t *cfg) {
+bool validate_config(const signal_gen_config_t *cfg) {
     // Frequency validation (Nyquist limit)
     if (cfg->frequency_hz > SAMPLE_RATE_HZ / 4) {
         ESP_LOGW(TAG, "Frequency %lu Hz may cause aliasing (max: %d Hz)", 
