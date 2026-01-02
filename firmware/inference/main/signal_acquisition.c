@@ -120,6 +120,7 @@ static void continuous_adc_init(void) {
 
     ESP_ERROR_CHECK(adc_continuous_config(s_adc_handle, &dig_cfg));
 }
+
 /**
  * @brief Update current ground truth label
  * 
@@ -306,6 +307,33 @@ void signal_acquisition_init(void) {
     ESP_ERROR_CHECK(adc_continuous_register_event_callbacks(s_adc_handle, &cbs, NULL));
     
     ESP_LOGI(TAG, "Signal acquisition initialized");
+}
+
+/**
+ * @brief UART label handling task
+ * 
+ * Listens for label update commands over UART and updates the current label.
+ * Expected command format: "SYNC LABEL wave=<wave_type>"
+ * 
+ * @param[in] arg Task argument (unused)
+ * 
+ * @note This is a simple implementation; production code should include
+ *       error handling and more robust parsing.
+ */
+static void uart_label_task(void *arg) {
+    char rx_buffer[256];
+    while(1) {
+        int len = uart_read_bytes(UART_NUM_0, rx_buffer, sizeof(rx_buffer), 100/portTICK_PERIOD_MS);
+        if (len > 0) {
+            rx_buffer[len] = '\0';
+            if (strstr(rx_buffer, "SYNC LABEL")) {
+                int wave;
+                if (sscanf(rx_buffer, "SYNC LABEL wave=%d", &wave) == 1) {
+                    signal_acquisition_update_label((signal_wave_t)wave);
+                }
+            }
+        }
+    }
 }
 
 /**
