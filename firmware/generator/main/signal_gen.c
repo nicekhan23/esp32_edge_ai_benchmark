@@ -203,8 +203,8 @@ void signal_gen_init(void) {
 
     dac_continuous_config_t dac_cfg = {
         // FIX: Use only the channel we need
-        .chan_mask = DAC_CHANNEL_MASK_CH0,  // Changed from DAC_CHANNEL_MASK_ALL
-        .desc_num = 8,
+        .chan_mask = DAC_CHANNEL_MASK_ALL,  // Changed from DAC_CHANNEL_MASK_ALL
+        .desc_num = 4,
         .buf_size = WAVE_TABLE_SIZE,
         .freq_hz = SAMPLE_RATE_HZ,
         .offset = 0,
