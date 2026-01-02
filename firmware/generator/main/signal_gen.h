@@ -103,7 +103,7 @@ void signal_gen_set_config(const signal_gen_config_t *cfg);
  * @param[in] cfg Pointer to configuration structure to validate
  * @return true if configuration is valid, false otherwise
  */
-static bool validate_config(const signal_gen_config_t *cfg);
+bool validate_config(const signal_gen_config_t *cfg);
 
 /**
  * @brief Get current signal generator configuration
