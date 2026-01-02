@@ -47,7 +47,7 @@ void app_main(void) {
         .print_raw_data = false,
         .print_features = true,
         .print_inference = true,
-        .print_stats = true,
+        .print_stats = false,
         .output_interval_ms = 1000
     };
     output_init(&output_config);

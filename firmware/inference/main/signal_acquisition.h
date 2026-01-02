@@ -82,6 +82,16 @@ typedef struct {
 void signal_acquisition_init(void);
 
 /**
+ * @brief Initialize UART for label synchronization
+ * 
+ * Configures UART communication for receiving ground truth labels
+ * from an external signal generator.
+ * 
+ * @note Must be called before starting acquisition if label sync is needed
+ */
+void signal_acquisition_init_uart(void);
+
+/**
  * @brief Get window queue handle for inter-task communication
  * 
  * Returns the FreeRTOS queue handle used to transfer window buffers

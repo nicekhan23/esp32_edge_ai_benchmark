@@ -19,6 +19,8 @@
 #include "freertos/semphr.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "driver/adc.h"
+#include "driver/uart.h"
 #include <string.h>
 
 // Private constants
@@ -323,7 +325,7 @@ void signal_acquisition_init(void) {
 static void uart_label_task(void *arg) {
     char rx_buffer[256];
     while(1) {
-        int len = uart_read_bytes(UART_NUM_0, rx_buffer, sizeof(rx_buffer), 100/portTICK_PERIOD_MS);
+        int len = uart_read_bytes(UART_NUM_0, rx_buffer, sizeof(rx_buffer) - 1, 100/portTICK_PERIOD_MS);
         if (len > 0) {
             rx_buffer[len] = '\0';
             if (strstr(rx_buffer, "SYNC LABEL")) {
@@ -333,7 +335,41 @@ static void uart_label_task(void *arg) {
                 }
             }
         }
+        vTaskDelay(pdMS_TO_TICKS(10));  // Small delay to prevent watchdog
     }
+}
+
+/**
+ * @brief Initialize UART for label synchronization
+ * 
+ * Configures UART and creates a task to listen for label updates.
+ */
+void signal_acquisition_init_uart(void) {
+    // Configure UART parameters
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+    
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));
+    ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
+    
+    // Create UART label task
+    xTaskCreate(
+        uart_label_task,
+        "uart_label_task",
+        2048,
+        NULL,
+        3,
+        NULL
+    );
+    
+    ESP_LOGI(TAG, "UART label synchronization initialized");
 }
 
 /**
