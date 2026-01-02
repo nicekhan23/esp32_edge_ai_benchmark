@@ -19,17 +19,21 @@
 #include "freertos/semphr.h"
 #include "esp_timer.h"
 #include "esp_log.h"
-#include "driver/adc.h"
 #include "driver/uart.h"
 #include <string.h>
 
 // Private constants
-#define ADC_UNIT                    ADC_UNIT_1           /**< ADC unit to use (1 or 2) */
+#define ADC_UNIT                    ADC_UNIT_1             /**< ADC unit to use (1 or 2) */
 #define ADC_CONV_MODE               ADC_CONV_SINGLE_UNIT_1 /**< ADC conversion mode */
-#define ADC_ATTEN                   ADC_ATTEN_DB_12     /**< ADC attenuation level (12dB) */
-#define ADC_BIT_WIDTH               ADC_BITWIDTH_12     /**< ADC resolution (12-bit) */
-#define CAPTURE_CHANNEL             ADC_CHANNEL_2       /**< ADC channel for signal input */
-#define ADC_FRAME_BYTES             512                 /**< Bytes per ADC read frame */
+#define ADC_ATTEN                   ADC_ATTEN_DB_12        /**< ADC attenuation level (12dB) */
+#define ADC_BIT_WIDTH               ADC_BITWIDTH_12        /**< ADC resolution (12-bit) */
+#define ADC_FRAME_BYTES             512                    /**< Bytes per ADC read frame */
+
+#if CONFIG_IDF_TARGET_ESP32
+#define CAPTURE_CHANNEL             ADC_CHANNEL_6          // GPIO34
+#else
+#define CAPTURE_CHANNEL             ADC_CHANNEL_2          // Default
+#endif
 
 // Global variables
 static const char *TAG = "SIGNAL_ACQ";                  /**< Logging tag for module */
@@ -247,28 +251,50 @@ static void capture_task(void *arg) {
         esp_err_t ret = adc_continuous_read(s_adc_handle, raw_buffer, 
                                            ADC_FRAME_BYTES, &bytes_read, 0);
 
-        
         if (ret == ESP_OK && bytes_read > 0) {
-            for (int i = 0; i < bytes_read; i += SOC_ADC_DIGI_RESULT_BYTES) {
-                adc_digi_output_data_t *p = (adc_digi_output_data_t*)&raw_buffer[i];
-                uint32_t data = p->type1.data;
-                
-                // Store in circular buffer
-                s_circular_buffer[s_circular_buffer_write_idx] = (uint16_t)data;
-                s_circular_buffer_write_idx = (s_circular_buffer_write_idx + 1) % CIRCULAR_BUFFER_SIZE;
-                
-                // Check for buffer overrun
-                if (s_circular_buffer_write_idx == s_circular_buffer_read_idx) {
-                    xSemaphoreTake(s_stats_mutex, portMAX_DELAY);
-                    s_stats.buffer_overruns++;
-                    xSemaphoreGive(s_stats_mutex);
-                    s_circular_buffer_read_idx = (s_circular_buffer_read_idx + WINDOW_OVERLAP) % CIRCULAR_BUFFER_SIZE;
+            // Parse ADC data properly with validation
+            adc_continuous_data_t parsed_data[bytes_read / SOC_ADC_DIGI_RESULT_BYTES];
+            uint32_t num_parsed_samples = 0;
+
+            esp_err_t parse_ret = adc_continuous_parse_data(s_adc_handle, raw_buffer, 
+                                                             bytes_read, parsed_data, 
+                                                             &num_parsed_samples);
+
+            if (parse_ret == ESP_OK) {
+                for (int i = 0; i < num_parsed_samples; i++) {
+                    if (parsed_data[i].valid) {
+                        // Store in circular buffer
+                        s_circular_buffer[s_circular_buffer_write_idx] = parsed_data[i].raw_data;
+                        s_circular_buffer_write_idx = (s_circular_buffer_write_idx + 1) % CIRCULAR_BUFFER_SIZE;
+                        
+                        // Check for buffer overrun
+                        if (s_circular_buffer_write_idx == s_circular_buffer_read_idx) {
+                            xSemaphoreTake(s_stats_mutex, portMAX_DELAY);
+                            s_stats.buffer_overruns++;
+                            xSemaphoreGive(s_stats_mutex);
+                            s_circular_buffer_read_idx = (s_circular_buffer_read_idx + WINDOW_OVERLAP) % CIRCULAR_BUFFER_SIZE;
+                        }
+                        
+                        // Try to extract window
+                        extract_window();
+                    } else {
+                        // Invalid data detected
+                        xSemaphoreTake(s_stats_mutex, portMAX_DELAY);
+                        s_stats.sampling_errors++;
+                        xSemaphoreGive(s_stats_mutex);
+                    }
                 }
-                
-                // Try to extract window
-                extract_window();
+            } else {
+                ESP_LOGE(TAG, "Data parsing failed: %s", esp_err_to_name(parse_ret));
+                xSemaphoreTake(s_stats_mutex, portMAX_DELAY);
+                s_stats.sampling_errors++;
+                xSemaphoreGive(s_stats_mutex);
             }
-        } else if (ret != ESP_OK) {
+        } else if (ret == ESP_ERR_TIMEOUT) {
+            // Timeout is normal, just continue
+            // No error logging needed
+        } else {
+            // Other errors (not timeout, not OK)
             xSemaphoreTake(s_stats_mutex, portMAX_DELAY);
             s_stats.sampling_errors++;
             xSemaphoreGive(s_stats_mutex);
