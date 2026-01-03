@@ -616,3 +616,30 @@ void output_ml_dataset_row(const window_buffer_t *window,
     printf("\n");
     fflush(stdout);
 }
+
+void output_confusion_matrix(void) {
+    static uint32_t confusion[5][5] = {0};  // [true_label][predicted_label]
+    
+    // Update matrix (call this from main.c after inference)
+    // confusion[window.label][result.type]++;
+    
+    printf("\n=== CONFUSION MATRIX ===\n");
+    printf("True\\Pred  SINE  SQUA  TRI   SAW   NOIS\n");
+    for (int i = 0; i < 5; i++) {
+        printf("%-10s", signal_type_to_string(i));
+        for (int j = 0; j < 5; j++) {
+            printf(" %4lu", confusion[i][j]);
+        }
+        printf("\n");
+    }
+    
+    // Calculate per-class accuracy
+    for (int i = 0; i < 5; i++) {
+        uint32_t total = 0;
+        for (int j = 0; j < 5; j++) total += confusion[i][j];
+        if (total > 0) {
+            float accuracy = (float)confusion[i][i] / total * 100;
+            printf("%s accuracy: %.1f%%\n", signal_type_to_string(i), accuracy);
+        }
+    }
+}

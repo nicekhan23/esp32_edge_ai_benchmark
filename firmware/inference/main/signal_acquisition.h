@@ -14,7 +14,8 @@
  * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
-#pragma once
+#ifndef SIGNAL_ACQUISITION_H
+#define SIGNAL_ACQUISITION_H
 
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
@@ -27,7 +28,6 @@
 #define WINDOW_OVERLAP               128    /**< Overlap between consecutive windows */
 #define CIRCULAR_BUFFER_SIZE         1024   /**< Size of circular buffer for raw samples */
 
-// Add after line 13 (after #include statements)
 /**
  * @brief Signal type enumeration (ground truth labels)
  */
@@ -50,9 +50,9 @@ typedef struct {
     uint64_t timestamp_us;            /**< Microsecond timestamp */
     uint32_t window_id;               /**< Sequential window identifier */
     float sample_rate_hz;             /**< Actual sampling rate */
-    uint32_t sequence_number;         /**< FIX: Sequence number for dataset integrity */
-    signal_wave_t label;              /**< FIX: Ground truth label from generator */
-    uint32_t checksum;                /**< FIX: Data integrity check */
+    uint32_t sequence_number;         /**< Sequence number for dataset integrity */
+    signal_wave_t label;              /**< Ground truth label from generator */
+    uint32_t checksum;                /**< Data integrity check */
 } window_buffer_t;
 
 /**
@@ -153,3 +153,5 @@ void signal_acquisition_start(void);
  * @note Uses flag-based graceful shutdown (non-blocking)
  */
 void signal_acquisition_stop(void);
+
+#endif /* SIGNAL_ACQUISITION_H */

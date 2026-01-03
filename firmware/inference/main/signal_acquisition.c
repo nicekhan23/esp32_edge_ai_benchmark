@@ -56,7 +56,7 @@ static acquisition_stats_t s_stats = {0};                /**< Acquisition statis
 // Private function prototypes
 static void capture_task(void *arg);
 static void extract_window(void);
-static bool IRAM_ATTR adc_conversion_callback(adc_continuous_handle_t handle, 
+static IRAM_ATTR bool adc_conversion_callback(adc_continuous_handle_t handle, 
                                               const adc_continuous_evt_data_t *edata, 
                                               void *user_data);
 static void continuous_adc_init(void);
@@ -76,7 +76,7 @@ static void continuous_adc_init(void);
  * @note This function must be in IRAM for interrupt handling
  * @note Uses task notifications for minimal ISR overhead
  */
-static bool IRAM_ATTR adc_conversion_callback(adc_continuous_handle_t handle, 
+static IRAM_ATTR bool adc_conversion_callback(adc_continuous_handle_t handle, 
                                               const adc_continuous_evt_data_t *edata, 
                                               void *user_data) {
     BaseType_t mustYield = pdFALSE;

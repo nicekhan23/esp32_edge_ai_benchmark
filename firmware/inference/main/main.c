@@ -25,7 +25,6 @@
 #include "inference.h"
 #include "benchmark.h"
 #include "output.h"
-#include "logger.h"
 
 static const char *TAG = "MAIN";                        /**< Logging tag for main */
 
@@ -42,15 +41,6 @@ static const char *TAG = "MAIN";                        /**< Logging tag for mai
  */
 void app_main(void) {
     ESP_LOGI(TAG, "=== ESP32 ML Signal Processing System ===");
-
-    // Initialize WiFi logger
-    ESP_LOGI(TAG, "Initializing WiFi logger...");
-    if (!wifi_logger_init()) {
-        ESP_LOGE(TAG, "WiFi logger initialization failed");
-        // Continue anyway for UART monitoring
-    } else {
-        ESP_LOGI(TAG, "WiFi logger ready. Waiting for client connections...");
-    }
     
     // Initialize output system with task-based architecture
     output_config_t output_config = {
@@ -69,6 +59,7 @@ void app_main(void) {
     
     // Initialize subsystems
     signal_acquisition_init();
+    signal_acquisition_init_uart();
     inference_init();
     benchmark_init();
     
@@ -126,22 +117,6 @@ void app_main(void) {
                 msg.type = OUTPUT_INFERENCE;
                 msg.data.inference = result;
                 output_queue_send(&msg);
-            }
-
-            // Write to WiFi clients for dataset collection
-            if (wifi_logger_has_clients()) {
-                wifi_logger_write(&window, &features, &result);
-            }
-            
-            // Validation output to UART every 50 windows
-            if (window.window_id % 50 == 0) {
-                output_window_validation(&window, &features);
-                
-                if (wifi_logger_has_clients()) {
-                    ESP_LOGI(TAG, "✓ WiFi client connected, streaming data...");
-                } else {
-                    ESP_LOGW(TAG, "⚠ No WiFi clients, waiting for connection...");
-                }
             }
             
             // Periodic statistics (less frequent)
