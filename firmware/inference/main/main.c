@@ -25,6 +25,7 @@
 #include "inference.h"
 #include "benchmark.h"
 #include "output.h"
+#include "logger.h"
 
 static const char *TAG = "MAIN";                        /**< Logging tag for main */
 
@@ -41,6 +42,15 @@ static const char *TAG = "MAIN";                        /**< Logging tag for mai
  */
 void app_main(void) {
     ESP_LOGI(TAG, "=== ESP32 ML Signal Processing System ===");
+
+    // Initialize WiFi logger
+    ESP_LOGI(TAG, "Initializing WiFi logger...");
+    if (!wifi_logger_init()) {
+        ESP_LOGE(TAG, "WiFi logger initialization failed");
+        // Continue anyway for UART monitoring
+    } else {
+        ESP_LOGI(TAG, "WiFi logger ready. Waiting for client connections...");
+    }
     
     // Initialize output system with task-based architecture
     output_config_t output_config = {
@@ -83,7 +93,7 @@ void app_main(void) {
     uint32_t stats_counter = 0;
     const uint32_t STATS_INTERVAL = 500;  // Increased interval
     
-    while (1) {
+        while (1) {
         // Wait for window (blocking)
         if (xQueueReceive(window_queue, &window, portMAX_DELAY)) {
             benchmark_start_window();
@@ -96,31 +106,43 @@ void app_main(void) {
             inference_result_t result = run_inference(&features);
             benchmark_end_inference();
             
-            // Send results to output queue (non-blocking)
+            benchmark_end_window();
+            
+            // ========== ADD VALIDATION OUTPUT ==========
+            // Every 50 windows, print detailed validation
+            if (window.window_id % 50 == 0) {
+                output_window_validation(&window, &features);
+            }
+            
+            // ========== EXPORT ML TRAINING DATA ==========
+            // Export every window for dataset collection
+            output_ml_dataset_row(&window, &features, &result);
+            
+            // Original output logic (keep for monitoring)
             output_message_t msg;
             msg.timestamp_us = esp_timer_get_time();
             
-            // Send inference result
             if (output_config.print_inference) {
                 msg.type = OUTPUT_INFERENCE;
                 msg.data.inference = result;
                 output_queue_send(&msg);
             }
-            
-            // Optional: Send raw window and features if enabled
-            if (output_config.print_raw_data) {
-                msg.type = OUTPUT_RAW_WINDOW;
-                msg.data.window = window;
-                output_queue_send(&msg);
+
+            // Write to WiFi clients for dataset collection
+            if (wifi_logger_has_clients()) {
+                wifi_logger_write(&window, &features, &result);
             }
             
-            if (output_config.print_features) {
-                msg.type = OUTPUT_FEATURES;
-                msg.data.features = features;
-                output_queue_send(&msg);
+            // Validation output to UART every 50 windows
+            if (window.window_id % 50 == 0) {
+                output_window_validation(&window, &features);
+                
+                if (wifi_logger_has_clients()) {
+                    ESP_LOGI(TAG, "✓ WiFi client connected, streaming data...");
+                } else {
+                    ESP_LOGW(TAG, "⚠ No WiFi clients, waiting for connection...");
+                }
             }
-            
-            benchmark_end_window();
             
             // Periodic statistics (less frequent)
             stats_counter++;
@@ -154,8 +176,6 @@ void app_main(void) {
                     ESP_LOGW(TAG, "Output queue filling up: %u/%u", queue_count, queue_size);
                 }
             }
-            
-            // Small delay to prevent watchdog (increased slightly)
             vTaskDelay(pdMS_TO_TICKS(2));
         }
     }

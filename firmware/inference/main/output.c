@@ -169,6 +169,46 @@ void output_inference_result(const inference_result_t *result) {
 }
 
 /**
+ * @brief Output detailed validation metrics for a window
+ * 
+ * Prints min/max, mean, peak-to-peak, estimated amplitude,
+ * RMS, ZCR, skewness, crest factor, and expected frequency.
+ * 
+ * @param[in] window Pointer to window buffer structure
+ * @param[in] features Pointer to feature vector structure
+ * 
+ * @note Intended for debugging and validation purposes
+ */
+void output_window_validation(const window_buffer_t *window, const feature_vector_t *features) {
+    // Calculate additional validation metrics
+    uint16_t min_val = window->samples[0];
+    uint16_t max_val = window->samples[0];
+    float sum = 0.0f;
+    
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+        if (window->samples[i] < min_val) min_val = window->samples[i];
+        if (window->samples[i] > max_val) max_val = window->samples[i];
+        sum += window->samples[i];
+    }
+    
+    float mean = sum / WINDOW_SIZE;
+    float peak_to_peak = max_val - min_val;
+    float estimated_amplitude = peak_to_peak / 2.0f;
+    
+    printf("\n=== VALIDATION [Window %lu, Label: %s] ===\n", 
+           window->window_id, 
+           signal_type_to_string(window->label));
+    printf("Range: [%u - %u] (P2P: %.1f, Est. Amp: %.1f)\n", 
+           min_val, max_val, peak_to_peak, estimated_amplitude);
+    printf("Mean: %.2f (DC offset indicator)\n", mean);
+    printf("RMS: %.2f, ZCR: %.4f\n", features->features[2], features->features[3]);
+    printf("Skewness: %.3f (sawtooth asymmetry)\n", features->features[4]);
+    printf("Crest Factor: %.3f (waveform shape)\n", features->features[6]);
+    printf("Expected frequency: Check ZCR against ~%d Hz\n", SAMPLING_RATE_HZ / 2);
+    printf("=====================================\n\n");
+}
+
+/**
  * @brief Output benchmark performance summary
  * 
  * Prints formatted performance metrics including processing rates,
@@ -536,4 +576,43 @@ void output_cleanup(void) {
         s_output_queue = NULL;
     }
     ESP_LOGI(TAG, "Output subsystem cleaned up");
+}
+
+/**
+ * @brief Output ML dataset row in CSV format
+ * 
+ * Prints a complete CSV row with timestamp, window ID, label,
+ * sample rate, features, inference result, and raw samples.
+ * 
+ * @param[in] window Pointer to window buffer structure
+ * @param[in] features Pointer to feature vector structure
+ * @param[in] result Pointer to inference result structure
+ * 
+ * @note Always prints regardless of output mode (for logging)
+ */
+void output_ml_dataset_row(const window_buffer_t *window, 
+                           const feature_vector_t *features,
+                           const inference_result_t *result) {
+    // CSV format: timestamp, window_id, label, features..., samples...
+    printf("ML_DATA,%" PRIu64 ",%lu,%d,%.2f,",
+           window->timestamp_us,
+           window->window_id,
+           window->label,  // Ground truth
+           window->sample_rate_hz);
+    
+    // All features
+    for (int i = 0; i < FEATURE_VECTOR_SIZE; i++) {
+        printf("%.6f,", features->features[i]);
+    }
+    
+    // Inference result for comparison
+    printf("%d,%.4f,", result->type, result->confidence);
+    
+    // Raw samples (for waveform reconstruction)
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+        printf("%u", window->samples[i]);
+        if (i < WINDOW_SIZE - 1) printf(",");
+    }
+    printf("\n");
+    fflush(stdout);
 }

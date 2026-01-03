@@ -178,6 +178,18 @@ void output_features(const feature_vector_t *features);
 void output_inference_result(const inference_result_t *result);
 
 /**
+ * @brief Output detailed validation metrics for a window
+ * 
+ * Prints min/max, mean, peak-to-peak, estimated amplitude,
+ * RMS, ZCR, skewness, crest factor, and expected frequency.
+ * 
+ * @param[in] window Pointer to window buffer structure
+ * @param[in] features Pointer to feature vector structure
+ * @note Intended for debugging and validation purposes
+ */
+void output_window_validation(const window_buffer_t *window, const feature_vector_t *features);
+
+/**
  * @brief Output benchmark performance summary
  * 
  * Prints formatted performance metrics including processing rates,
@@ -235,3 +247,31 @@ void output_flush(void);
  * Stops output task and frees queue memory.
  */
 void output_cleanup(void);
+
+/**
+ * @brief Output detailed validation metrics for a window
+ * 
+ * Prints min/max, mean, peak-to-peak, estimated amplitude,
+ * RMS, ZCR, skewness, crest factor, and expected frequency.
+ * 
+ * @param[in] window Pointer to window buffer structure
+ * @param[in] features Pointer to feature vector structure
+ * @note Intended for debugging and validation purposes
+ */
+void output_window_validation(const window_buffer_t *window, const feature_vector_t *features);
+
+/**
+ * @brief Output ML dataset row in CSV format
+ * 
+ * Prints a complete CSV row with timestamp, window ID, label,
+ * sample rate, features, inference result, and raw samples.
+ * 
+ * @param[in] window Pointer to window buffer structure
+ * @param[in] features Pointer to feature vector structure
+ * @param[in] result Pointer to inference result structure
+ * 
+ * @note Always prints regardless of output mode (for logging)
+ */
+void output_ml_dataset_row(const window_buffer_t *window, 
+                           const feature_vector_t *features,
+                           const inference_result_t *result);
