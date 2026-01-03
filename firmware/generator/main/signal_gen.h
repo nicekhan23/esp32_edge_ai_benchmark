@@ -127,3 +127,11 @@ const signal_gen_config_t *signal_gen_get_config(void);
  * Format: "LABEL wave=%d amp=%.2f freq=%lu noise=%.3f offset=%.2f"
  */
 void signal_gen_emit_label(void);
+
+/**
+ * @brief Broadcast configuration label via UART
+ * 
+ * Sends current configuration in machine-readable format for synchronization
+ * with acquisition device.
+ */
+void signal_gen_broadcast_label(void);
