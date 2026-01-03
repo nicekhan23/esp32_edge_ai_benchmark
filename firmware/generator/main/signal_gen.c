@@ -253,23 +253,29 @@ void signal_gen_broadcast_label(void) {
 void signal_gen_set_config(const signal_gen_config_t *cfg) {
     // Validate configuration before applying
     if (!validate_config(cfg)) {
-        ESP_LOGW(TAG, "Configuration validation failed, using safe defaults");
+        ESP_LOGW(TAG, "Configuration validation failed, applying safe defaults:");
+        
         // Apply safe defaults for invalid values
         signal_gen_config_t safe_cfg = *cfg;
-        safe_cfg.frequency_hz = MIN(safe_cfg.frequency_hz, SAMPLE_RATE_HZ / 4);
+        
+        if (cfg->frequency_hz > SAMPLE_RATE_HZ / 4) {
+            safe_cfg.frequency_hz = SAMPLE_RATE_HZ / 4;
+            ESP_LOGW(TAG, "  Clamped frequency %lu -> %d Hz", 
+                     cfg->frequency_hz, safe_cfg.frequency_hz);
+        }
+
         safe_cfg.amplitude = clamp(safe_cfg.amplitude, 0.0f, 1.0f);
         safe_cfg.noise_std = MAX(safe_cfg.noise_std, 0.0f);
         safe_cfg.dc_offset = clamp(safe_cfg.dc_offset, -1.0f, 1.0f);
         safe_cfg.wave = (signal_wave_t)clamp((float)safe_cfg.wave, 
                                            (float)SIGNAL_WAVE_SINE, 
                                            (float)SIGNAL_WAVE_SAWTOOTH);
+
         memcpy(&current_cfg, &safe_cfg, sizeof(signal_gen_config_t));
     } else {
+        // Configuration is valid, apply directly
         memcpy(&current_cfg, cfg, sizeof(signal_gen_config_t));
     }
-    
-    // Reset phase accumulator when configuration changes
-    phase_accumulator = 0.0f;
     
     // Regenerate waveform with new parameters
     generate_waveform(wave_buffer, WAVE_TABLE_SIZE);
