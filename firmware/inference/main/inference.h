@@ -29,7 +29,8 @@ typedef enum {
     SIGNAL_SINE = 0,       /**< Sine wave signal */
     SIGNAL_SQUARE = 1,     /**< Square wave signal */
     SIGNAL_TRIANGLE = 2,   /**< Triangle wave signal */
-    SIGNAL_NOISE = 3,      /**< Random noise signal */
+    SIGNAL_SAWTOOTH = 3,   /**< Sawtooth wave signal */
+    SIGNAL_NOISE = 4,      /**< Random noise signal */
     SIGNAL_COUNT           /**< Number of signal types (for array sizing) */
 } signal_type_t;
 

@@ -42,7 +42,7 @@ typedef struct {
  * @param[in] window Pointer to window buffer containing raw samples
  * @param[out] features Pointer to feature vector to populate
  * 
- * @note Feature order: [mean, variance, RMS, ZCR, FFT0-7, sample_rate, window_size]
+ * @note Feature order: [mean, variance, RMS, ZCR, skewness, kurtosis, crest_factor, FFT0-7, sample_rate]
  * @note Copies window metadata to feature vector
  */
 void extract_features(const window_buffer_t *window, feature_vector_t *features);
@@ -101,6 +101,30 @@ float calculate_rms(const uint16_t *samples, uint32_t count);
  * @return float ZCR (0.0 to 1.0)
  */
 float calculate_zero_crossing_rate(const uint16_t *samples, uint32_t count);
+
+/**
+ * @brief Calculate Crest Factor
+ * 
+ * Computes peak-to-RMS ratio, useful for distinguishing waveform types.
+ * 
+ * @param[in] samples Array of ADC samples
+ * @param[in] count Number of samples
+ * @param[in] rms RMS value of samples
+ * @return float Crest factor
+ */
+float calculate_crest_factor(const uint16_t *samples, uint32_t count, float rms);
+
+/**
+ * @brief Calculate Form Factor
+ * 
+ * Computes ratio of RMS to mean absolute value, useful for waveform shape discrimination.
+ * 
+ * @param[in] samples Array of ADC samples
+ * @param[in] count Number of samples
+ * @param[in] rms RMS value of samples
+ * @return float Form factor
+ */
+float calculate_form_factor(const uint16_t *samples, uint32_t count, float rms);
 
 /**
  * @brief Calculate FFT-based frequency features

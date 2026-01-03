@@ -48,6 +48,78 @@ typedef struct {
 } output_config_t;
 
 /**
+ * @brief Output message type enumeration
+ */
+typedef enum {
+    OUTPUT_RAW_WINDOW,
+    OUTPUT_FEATURES,
+    OUTPUT_INFERENCE,
+    OUTPUT_BENCHMARK_SUMMARY,
+    OUTPUT_ACQUISITION_STATS,
+    OUTPUT_INFERENCE_STATS,
+    OUTPUT_SYSTEM_INFO,
+    OUTPUT_TYPE_COUNT
+} output_message_type_t;
+
+/**
+ * @brief Output message structure
+ */
+typedef struct {
+    output_message_type_t type;
+    union {
+        window_buffer_t window;
+        feature_vector_t features;
+        inference_result_t inference;
+        benchmark_metrics_t benchmark;
+        acquisition_stats_t acq_stats;
+        inference_stats_t inf_stats;
+    } data;
+    uint64_t timestamp_us;
+} output_message_t;
+
+/**
+ * @brief Initialize output task with queue
+ * 
+ * Creates the output task and message queue for asynchronous output.
+ * 
+ * @param[in] config Output configuration
+ * @return true if initialization successful, false otherwise
+ */
+bool output_task_init(const output_config_t *config);
+
+/**
+ * @brief Send message to output queue
+ * 
+ * Non-blocking send to output queue for asynchronous processing.
+ * 
+ * @param[in] msg Pointer to output message
+ * @return true if message queued successfully, false if queue full
+ */
+bool output_queue_send(output_message_t *msg);
+
+/**
+ * @brief Get output queue handle
+ * 
+ * @return QueueHandle_t Handle to output message queue
+ */
+QueueHandle_t output_get_queue(void);
+
+/**
+ * @brief Check if output queue is full
+ * 
+ * @return true if queue is full, false otherwise
+ */
+bool output_queue_is_full(void);
+
+/**
+ * @brief Get output queue usage statistics
+ * 
+ * @param[out] count Current number of messages in queue
+ * @param[out] size Queue capacity
+ */
+void output_queue_stats(uint32_t *count, uint32_t *size);
+
+/**
  * @brief Initialize output subsystem
  * 
  * Sets output mode and parameters, prints CSV header if needed,
@@ -58,7 +130,7 @@ typedef struct {
  * @note If config is NULL, uses default human-readable configuration
  * @note CSV header is printed only once per session
  */
-void output_init(const output_config_t *config);
+bool output_init(const output_config_t *config);
 
 /**
  * @brief Dynamically change output mode
@@ -156,3 +228,10 @@ void output_system_info(void);
  * Useful for real-time streaming and log integrity.
  */
 void output_flush(void);
+
+/**
+ * @brief Cleanup output subsystem resources
+ * 
+ * Stops output task and frees queue memory.
+ */
+void output_cleanup(void);

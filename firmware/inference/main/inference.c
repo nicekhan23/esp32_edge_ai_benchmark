@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include <string.h>
+#include <math.h>
 
 // Configuration
 #define TENSOR_ARENA_SIZE (1024 * 1024)  /**< 1MB for TensorFlow Lite model */
@@ -38,27 +39,70 @@ static uint8_t *tensor_arena = NULL;
 static inference_stats_t s_stats = {0};
 
 /**
- * @brief Simple rule-based signal classifier (placeholder)
+ * @brief Enhanced signal classifier with sawtooth detection
  * 
- * Classifies signals based on variance and zero-crossing rate heuristics.
- * Replace with proper ML model inference.
+ * Classifies signals based on multiple heuristics including:
+ * - Variance and zero-crossing rate
+ * - Skewness (for sawtooth detection)
+ * - Crest factor
+ * - Form factor
  * 
  * @param[in] features Pointer to feature vector
  * @return signal_type_t Classified signal type
  */
 static signal_type_t classify_simple(const feature_vector_t *features) {
-    float zcr = features->features[3];  // Zero crossing rate
-    float variance = features->features[1];  // Variance
+    float zcr = features->features[3];          // Zero crossing rate
+    float variance = features->features[1];     // Variance
+    float skewness = features->features[4];     // Skewness
+    float crest_factor = features->features[6]; // Crest factor
+    float form_factor = features->features[7];  // Form factor
     
-    if (variance < 100.0f) {
-        return SIGNAL_NOISE;  // Low variance -> likely noise
-    } else if (zcr > 0.3f) {
-        return SIGNAL_SINE;   // High zero crossing -> sine
-    } else if (zcr < 0.1f) {
-        return SIGNAL_SQUARE; // Low zero crossing -> square
-    } else {
-        return SIGNAL_TRIANGLE;
+    // Threshold values (calibrate based on actual signal data)
+    const float NOISE_VARIANCE_THRESHOLD = 100.0f;
+    const float SINE_ZCR_THRESHOLD = 0.35f;
+    const float SQUARE_ZCR_THRESHOLD = 0.05f;
+    const float SAWTOOTH_SKEWNESS_THRESHOLD = 0.3f;
+    const float TRIANGLE_ZCR_MIN = 0.1f;
+    const float TRIANGLE_ZCR_MAX = 0.25f;
+    const float SAWTOOTH_ZCR_MIN = 0.15f;
+    const float SAWTOOTH_ZCR_MAX = 0.3f;
+    
+    // Step 1: Check for noise (low variance)
+    if (variance < NOISE_VARIANCE_THRESHOLD) {
+        return SIGNAL_NOISE;
     }
+    
+    // Step 2: Check for sine wave (high ZCR)
+    if (zcr > SINE_ZCR_THRESHOLD) {
+        return SIGNAL_SINE;
+    }
+    
+    // Step 3: Check for square wave (very low ZCR)
+    if (zcr < SQUARE_ZCR_THRESHOLD) {
+        return SIGNAL_SQUARE;
+    }
+    
+    // Step 4: Distinguish between triangle and sawtooth
+    if (zcr >= TRIANGLE_ZCR_MIN && zcr <= TRIANGLE_ZCR_MAX) {
+        // Check skewness for sawtooth (asymmetric)
+        if (fabsf(skewness) > SAWTOOTH_SKEWNESS_THRESHOLD) {
+            return SIGNAL_SAWTOOTH;
+        } else {
+            return SIGNAL_TRIANGLE;
+        }
+    }
+    
+    // Step 5: Additional sawtooth detection with ZCR range
+    if (zcr >= SAWTOOTH_ZCR_MIN && zcr <= SAWTOOTH_ZCR_MAX) {
+        // Sawtooth often has moderate crest factor (1.4-1.7) and form factor (~1.11)
+        if (crest_factor > 1.4f && crest_factor < 1.8f && 
+            form_factor > 1.05f && form_factor < 1.15f) {
+            return SIGNAL_SAWTOOTH;
+        }
+    }
+    
+    // Default: triangle wave
+    return SIGNAL_TRIANGLE;
 }
 
 /**
@@ -95,7 +139,7 @@ void inference_init(void) {
  * @return inference_result_t Classification result with metadata
  * 
  * @note Updates inference statistics internally
- * @note Placeholder confidence fixed at 0.85
+ * @note Confidence calculated based on feature distances from thresholds
  */
 inference_result_t run_inference(const feature_vector_t *features) {
     uint64_t start_time = esp_timer_get_time();
@@ -105,8 +149,33 @@ inference_result_t run_inference(const feature_vector_t *features) {
     
     // Run classification
     result.type = classify_simple(features);
-    result.confidence = 0.85f;  // Placeholder confidence
     
+    // Calculate confidence based on feature values
+    float confidence = 0.70f;  // Base confidence
+    
+    // Adjust confidence based on how clearly features match the classification
+    switch (result.type) {
+        case SIGNAL_SINE:
+            if (features->features[3] > 0.4f) confidence = 0.95f;  // Very high ZCR
+            break;
+        case SIGNAL_SQUARE:
+            if (features->features[3] < 0.02f) confidence = 0.90f;  // Very low ZCR
+            break;
+        case SIGNAL_TRIANGLE:
+            if (fabsf(features->features[4]) < 0.1f) confidence = 0.85f;  // Symmetrical
+            break;
+        case SIGNAL_SAWTOOTH:
+            if (fabsf(features->features[4]) > 0.5f) confidence = 0.90f;  // Strong asymmetry
+            break;
+        case SIGNAL_NOISE:
+            if (features->features[1] < 50.0f) confidence = 0.95f;  // Very low variance
+            break;
+        default:
+            confidence = 0.50f;
+            break;
+    }
+    
+    result.confidence = confidence;
     result.inference_time_us = esp_timer_get_time() - start_time;
     
     // Update statistics
@@ -116,9 +185,13 @@ inference_result_t run_inference(const feature_vector_t *features) {
     }
     
     // Update average inference time (moving average)
-    s_stats.avg_inference_time_us = 
-        (s_stats.avg_inference_time_us * (s_stats.total_inferences - 1) + 
-         result.inference_time_us) / s_stats.total_inferences;
+    if (s_stats.total_inferences > 1) {
+        s_stats.avg_inference_time_us = 
+            (s_stats.avg_inference_time_us * (s_stats.total_inferences - 1) + 
+             result.inference_time_us) / s_stats.total_inferences;
+    } else {
+        s_stats.avg_inference_time_us = result.inference_time_us;
+    }
     
     return result;
 }
@@ -134,6 +207,7 @@ const char* signal_type_to_string(signal_type_t type) {
         case SIGNAL_SINE: return "SINE";
         case SIGNAL_SQUARE: return "SQUARE";
         case SIGNAL_TRIANGLE: return "TRIANGLE";
+        case SIGNAL_SAWTOOTH: return "SAWTOOTH";
         case SIGNAL_NOISE: return "NOISE";
         default: return "UNKNOWN";
     }
