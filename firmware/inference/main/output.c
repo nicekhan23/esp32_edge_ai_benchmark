@@ -58,9 +58,9 @@ typedef struct {
 static output_rate_limit_t s_rate_limit = {
     .last_reset_us = 0,
     .limits = {
-        [OUTPUT_RAW_WINDOW] = 10,     // 10 raw windows/sec max
-        [OUTPUT_FEATURES] = 20,       // 20 features/sec max
-        [OUTPUT_INFERENCE] = 50,      // 50 inferences/sec max
+        [OUTPUT_RAW_WINDOW] = 200,     // 10 raw windows/sec max
+        [OUTPUT_FEATURES] = 200,       // 20 features/sec max
+        [OUTPUT_INFERENCE] = 200,      // 50 inferences/sec max
         [OUTPUT_BENCHMARK_SUMMARY] = 1,
         [OUTPUT_ACQUISITION_STATS] = 1,
         [OUTPUT_INFERENCE_STATS] = 1,

@@ -28,6 +28,27 @@
 
 static const char *TAG = "MAIN";                        /**< Logging tag for main */
 
+// Add this temporary test block in app_main() before the main loop
+void test_adc_only(void) {
+    window_buffer_t window;
+    QueueHandle_t q = signal_acquisition_get_window_queue();
+    
+    ESP_LOGI(TAG, "=== ADC TEST MODE ===");
+    for(int i = 0; i < 10; i++) {
+        if(xQueueReceive(q, &window, pdMS_TO_TICKS(1000))) {
+            uint16_t min = 4095, max = 0;
+            float sum = 0;
+            for(int j = 0; j < WINDOW_SIZE; j++) {
+                if(window.samples[j] < min) min = window.samples[j];
+                if(window.samples[j] > max) max = window.samples[j];
+                sum += window.samples[j];
+            }
+            ESP_LOGI(TAG, "Window %lu: min=%u max=%u mean=%.1f", 
+                     window.window_id, min, max, sum/WINDOW_SIZE);
+        }
+    }
+}
+
 /**
  * @brief Application entry point (main FreeRTOS task)
  * 
@@ -47,9 +68,9 @@ void app_main(void) {
         .mode = OUTPUT_MODE_HUMAN,
         .print_raw_data = false,     // Disable verbose output
         .print_features = false,     // Disable verbose output
-        .print_inference = true,     // Keep only inference results
-        .print_stats = true,         // Enable periodic stats
-        .output_interval_ms = 5000   // Longer interval for stats
+        .print_inference = false,     // Keep only inference results
+        .print_stats = false,         // Enable periodic stats
+        .output_interval_ms = 10000   // Longer interval for stats
     };
     
     if (!output_init(&output_config)) {
@@ -101,9 +122,9 @@ void app_main(void) {
             
             // ========== ADD VALIDATION OUTPUT ==========
             // Every 50 windows, print detailed validation
-            if (window.window_id % 50 == 0) {
+            /*if (window.window_id % 50 == 0) {
                 output_window_validation(&window, &features);
-            }
+            }*/
             
             // ========== EXPORT ML TRAINING DATA ==========
             // Export every window for dataset collection
