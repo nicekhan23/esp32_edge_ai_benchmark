@@ -7,7 +7,7 @@
  * 
  * @author Darkhan Zhanibekuly
  * @date 2025 December
- * @version 1.0.0
+ * @version 1.1.0  // Updated version
  * 
  * @note Uses ESP-IDF DAC Continuous Driver for efficient waveform output
  * @note All floating-point calculations use single precision (float) for speed
@@ -27,6 +27,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 /**
  * @defgroup signal_gen_internal Internal Signal Generator Definitions
@@ -42,6 +43,8 @@
 #define SAMPLE_RATE_HZ     20000           /**< Fixed DAC sample rate in Hertz */
 #define WAVE_TABLE_SIZE    400             /**< Size of waveform buffer in samples */
 #define DAC_MAX            255             /**< Maximum DAC value (8-bit) */
+#define DAC_MIN            10              /**< Minimum safe DAC value */
+#define DAC_MAX_SAFE       245             /**< Maximum safe DAC value */
 
 #ifndef MIN
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
@@ -63,10 +66,10 @@ static uint8_t wave_buffer[WAVE_TABLE_SIZE];          /**< Circular buffer for w
  */
 static signal_gen_config_t current_cfg = {
     .wave = SIGNAL_WAVE_SINE,      /**< Default waveform: sine */
-    .amplitude = 1.0f,             /**< Full amplitude */
+    .amplitude = 0.9f,             /**< Reduced amplitude for safety */
     .noise_std = 0.0f,             /**< No noise by default */
     .dc_offset = 0.0f,             /**< No DC offset */
-    .frequency_hz = 1000,          /**< 1kHz default frequency */
+    .frequency_hz = 500,           /**< 500Hz default frequency */
     .duration_ms = 0               /**< Continuous operation */
 };
 
@@ -116,6 +119,53 @@ static float gaussian_noise(float stddev)
     return z0 * stddev;
 }
 
+/**
+ * @brief Get waveform name string
+ * 
+ * @param[in] wave Waveform enum value
+ * @return Human-readable waveform name
+ */
+const char* wave_name(signal_wave_t wave)
+{
+    switch (wave) {
+        case SIGNAL_WAVE_SINE: return "sine";
+        case SIGNAL_WAVE_SQUARE: return "square";
+        case SIGNAL_WAVE_TRIANGLE: return "triangle";
+        case SIGNAL_WAVE_SAWTOOTH: return "sawtooth";
+        default: return "unknown";
+    }
+}
+
+/**
+ * @brief Safe printf that ensures complete UART transmission
+ * 
+ * @param[in] format Format string (same as printf)
+ * @param[in] ... Variable arguments
+ */
+static void safe_printf(const char *format, ...)
+{
+    char buffer[128];
+    va_list args;
+    
+    va_start(args, format);
+    int len = vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    
+    if (len > 0) {
+        // Write in chunks to avoid UART buffer overflow
+        int written = 0;
+        while (written < len) {
+            int chunk_size = MIN(64, len - written);
+            printf("%.*s", chunk_size, buffer + written);
+            fflush(stdout);  // Force flush
+            written += chunk_size;
+            vTaskDelay(pdMS_TO_TICKS(1));  // Small delay
+        }
+        printf("\n");
+        fflush(stdout);
+    }
+}
+
 /* ================== Waveform Generation Core ================== */
 
 /**
@@ -137,6 +187,9 @@ static void generate_waveform(uint8_t *buf, size_t len)
     // Calculate phase increment based on desired frequency
     float phase_increment = (float)current_cfg.frequency_hz / (float)SAMPLE_RATE_HZ;
     
+    // Calculate safe amplitude considering DC offset
+    float safe_amplitude = MIN(current_cfg.amplitude, 1.0f - fabsf(current_cfg.dc_offset));
+    
     for (size_t i = 0; i < len; i++) {
         float phase = phase_accumulator;
         float v = 0.0f;
@@ -148,7 +201,11 @@ static void generate_waveform(uint8_t *buf, size_t len)
             break;
 
         case SIGNAL_WAVE_SQUARE:
-            v = phase < 0.5f ? 1.0f : -1.0f;
+            // Band-limited square wave (3 harmonics)
+            v = sinf(2.0f * M_PI * phase) + 
+                sinf(3.0f * 2.0f * M_PI * phase) / 3.0f +
+                sinf(5.0f * 2.0f * M_PI * phase) / 5.0f;
+            v *= 4.0f / M_PI;  // Normalize amplitude
             break;
 
         case SIGNAL_WAVE_TRIANGLE:
@@ -160,8 +217,8 @@ static void generate_waveform(uint8_t *buf, size_t len)
             break;
         }
 
-        /* Apply amplitude */
-        v *= current_cfg.amplitude;
+        /* Apply safe amplitude */
+        v *= safe_amplitude;
 
         /* Add Gaussian noise */
         v += gaussian_noise(current_cfg.noise_std);
@@ -171,7 +228,13 @@ static void generate_waveform(uint8_t *buf, size_t len)
 
         /* Normalize to DAC range and clip */
         v = clamp(v, -1.0f, 1.0f);
+        
+        /* Convert to DAC value with buffer zones */
         uint8_t dac_val = (uint8_t)((v + 1.0f) * 0.5f * DAC_MAX);
+        
+        /* Keep DAC away from rails to prevent clipping */
+        if (dac_val > DAC_MAX_SAFE) dac_val = DAC_MAX_SAFE;
+        if (dac_val < DAC_MIN) dac_val = DAC_MIN;
 
         buf[i] = dac_val;
         
@@ -202,8 +265,8 @@ void signal_gen_init(void) {
     ESP_LOGI(TAG, "Initializing DAC signal generator");
 
     dac_continuous_config_t dac_cfg = {
-        // FIX: Use only the channel we need
-        .chan_mask = DAC_CHANNEL_MASK_ALL,  // Changed from DAC_CHANNEL_MASK_ALL
+        // FIXED: Use only channel 0
+        .chan_mask = DAC_CHANNEL_MASK_CH0,  // Changed from DAC_CHANNEL_MASK_ALL
         .desc_num = 4,
         .buf_size = WAVE_TABLE_SIZE,
         .freq_hz = SAMPLE_RATE_HZ,
@@ -220,6 +283,8 @@ void signal_gen_init(void) {
     ESP_ERROR_CHECK(dac_continuous_enable(dac_handle));
     
     ESP_LOGI(TAG, "DAC initialized successfully. Sample rate: %d Hz", SAMPLE_RATE_HZ);
+    ESP_LOGI(TAG, "DAC safe range: %d to %d (full range: 0 to %d)", 
+             DAC_MIN, DAC_MAX_SAFE, DAC_MAX);
 }
 
 /**
@@ -229,7 +294,7 @@ void signal_gen_init(void) {
  * with acquisition device.
  */
 void signal_gen_broadcast_label(void) {
-    printf("SYNC LABEL wave=%d freq=%lu amp=%.2f noise=%.3f offset=%.2f\n",
+    safe_printf("SYNC LABEL wave=%d freq=%lu amp=%.2f noise=%.3f offset=%.2f\n",
            current_cfg.wave,
            current_cfg.frequency_hz,
            current_cfg.amplitude,
@@ -258,34 +323,21 @@ void signal_gen_set_config(const signal_gen_config_t *cfg) {
         // Apply safe defaults for invalid values
         signal_gen_config_t safe_cfg = *cfg;
         
-        if (cfg->frequency_hz > SAMPLE_RATE_HZ / 4) {
-            safe_cfg.frequency_hz = SAMPLE_RATE_HZ / 4;
-            ESP_LOGW(TAG, "  Clamped frequency %lu -> %d Hz", 
-                     cfg->frequency_hz, safe_cfg.frequency_hz);
-        }
-
-        safe_cfg.amplitude = clamp(safe_cfg.amplitude, 0.0f, 1.0f);
-        safe_cfg.noise_std = MAX(safe_cfg.noise_std, 0.0f);
-        safe_cfg.dc_offset = clamp(safe_cfg.dc_offset, -1.0f, 1.0f);
-        safe_cfg.wave = (signal_wave_t)clamp((float)safe_cfg.wave, 
-                                           (float)SIGNAL_WAVE_SINE, 
-                                           (float)SIGNAL_WAVE_SAWTOOTH);
+        // Reset phase accumulator for clean start
+        phase_accumulator = 0.0f;
 
         memcpy(&current_cfg, &safe_cfg, sizeof(signal_gen_config_t));
     } else {
         // Configuration is valid, apply directly
         memcpy(&current_cfg, cfg, sizeof(signal_gen_config_t));
+        phase_accumulator = 0.0f;
     }
     
     // Regenerate waveform with new parameters
     generate_waveform(wave_buffer, WAVE_TABLE_SIZE);
 
-    // FIX: Add small delay to ensure UART transmission completes
-    vTaskDelay(pdMS_TO_TICKS(10));
-    signal_gen_broadcast_label();
-    vTaskDelay(pdMS_TO_TICKS(10));
-    
-    // FIX: Broadcast label change for synchronization
+    // Small delay for UART
+    vTaskDelay(pdMS_TO_TICKS(5));
     signal_gen_broadcast_label();
     
     // Update DAC with new waveform if currently running
@@ -314,10 +366,36 @@ void signal_gen_set_config(const signal_gen_config_t *cfg) {
  * @note DC offset must be in range [-1.0, 1.0]
  */
 bool validate_config(const signal_gen_config_t *cfg) {
-    // Frequency validation (Nyquist limit)
-    if (cfg->frequency_hz > SAMPLE_RATE_HZ / 4) {
-        ESP_LOGW(TAG, "Frequency %lu Hz may cause aliasing (max: %d Hz)", 
-                cfg->frequency_hz, SAMPLE_RATE_HZ / 4);
+    int max_freq = SAMPLE_RATE_HZ / 4;  // Default max frequency
+    
+    // Waveform-specific frequency limits
+    switch (cfg->wave) {
+        case SIGNAL_WAVE_SINE:
+            max_freq = SAMPLE_RATE_HZ / 4;      // 5 kHz for 20 kHz sample rate
+            break;
+        case SIGNAL_WAVE_TRIANGLE:
+            max_freq = SAMPLE_RATE_HZ / 8;      // 2.5 kHz
+            break;
+        case SIGNAL_WAVE_SQUARE:
+            max_freq = SAMPLE_RATE_HZ / 16;     // 1.25 kHz (band-limited helps)
+            break;
+        case SIGNAL_WAVE_SAWTOOTH:
+            max_freq = SAMPLE_RATE_HZ / 20;     // 1.0 kHz
+            break;
+    }
+    
+    // Frequency validation (waveform-specific limits)
+    if (cfg->frequency_hz > max_freq) {
+        ESP_LOGW(TAG, "Frequency %lu Hz too high for %s wave (max: %d Hz)", 
+                cfg->frequency_hz, 
+                wave_name(cfg->wave), 
+                max_freq);
+        return false;
+    }
+    
+    // Minimum frequency check
+    if (cfg->frequency_hz < 1) {
+        ESP_LOGW(TAG, "Frequency must be at least 1 Hz");
         return false;
     }
     
@@ -327,15 +405,21 @@ bool validate_config(const signal_gen_config_t *cfg) {
         return false;
     }
     
-    // Noise validation
-    if (cfg->noise_std < 0.0f) {
-        ESP_LOGW(TAG, "Noise standard deviation cannot be negative");
+    // DC offset validation
+    if (cfg->dc_offset < -1.0f || cfg->dc_offset > 1.0f) {
+        ESP_LOGW(TAG, "DC offset must be in range [-1.0, 1.0]");
         return false;
     }
     
-    // DC offset validation
-    if (fabsf(cfg->dc_offset) > 1.0f) {
-        ESP_LOGW(TAG, "DC offset must be in range [-1.0, 1.0]");
+    // Combined amplitude + DC offset validation
+    if (fabsf(cfg->dc_offset) + cfg->amplitude > 1.0f) {
+        ESP_LOGW(TAG, "Amplitude + |DC offset| must be ≤ 1.0 to prevent clipping");
+        return false;
+    }
+    
+    // Noise validation
+    if (cfg->noise_std < 0.0f) {
+        ESP_LOGW(TAG, "Noise standard deviation cannot be negative");
         return false;
     }
     
@@ -433,9 +517,10 @@ void signal_gen_stop(void)
  */
 void signal_gen_emit_label(void)
 {
-    printf(
-        "LABEL wave=%d amp=%.2f freq=%lu noise=%.3f offset=%.2f\n",
+    safe_printf(
+        "LABEL wave=%d wave_name=%s amp=%.2f freq=%lu noise=%.3f offset=%.2f\n",
         current_cfg.wave,
+        wave_name(current_cfg.wave),
         current_cfg.amplitude,
         current_cfg.frequency_hz,
         current_cfg.noise_std,

@@ -7,7 +7,7 @@
  * 
  * @author Darkhan Zhanibekuly
  * @date 2025 December
- * @version 1.0.0
+ * @version 1.1.0  // Updated version
  * 
  * @copyright (c) 2025 December ESP32 Signal Generator Project
  */
@@ -135,3 +135,15 @@ void signal_gen_emit_label(void);
  * with acquisition device.
  */
 void signal_gen_broadcast_label(void);
+
+/* ========== Helper Functions ========== */
+
+/**
+ * @brief Get waveform name as string
+ * 
+ * Converts waveform enum value to human-readable string.
+ * 
+ * @param[in] wave Waveform type enum value
+ * @return String representation of waveform
+ */
+const char* wave_name(signal_wave_t wave);
