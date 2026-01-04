@@ -2,11 +2,9 @@
  * @file common.h
  * @brief Common types and utilities shared across modules
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #pragma once
@@ -14,19 +12,22 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <esp_timer.h>
+#include "ml_contract.h"  // Include ML contract FIRST
 
 /**
- * @brief Signal type enumeration (shared between acquisition and inference)
+ * @brief Legacy signal type (deprecated - use ml_class_t from contract)
+ * @deprecated Use ml_class_t from ml_contract.h instead
  */
-typedef enum {
-    SIGNAL_UNKNOWN = -1,
-    SIGNAL_SINE = 0,
-    SIGNAL_SQUARE = 1,
-    SIGNAL_TRIANGLE = 2,
-    SIGNAL_SAWTOOTH = 3,
-    SIGNAL_NOISE = 4,
-    SIGNAL_COUNT
-} signal_type_t;
+typedef ml_class_t signal_type_t;
+
+// Maintain backward compatibility for now
+#define SIGNAL_UNKNOWN    ML_CLASS_NOISE
+#define SIGNAL_SINE       ML_CLASS_SINE
+#define SIGNAL_SQUARE     ML_CLASS_SQUARE
+#define SIGNAL_TRIANGLE   ML_CLASS_TRIANGLE
+#define SIGNAL_SAWTOOTH   ML_CLASS_SAWTOOTH
+#define SIGNAL_NOISE      ML_CLASS_NOISE
+#define SIGNAL_COUNT      ML_CLASS_COUNT
 
 /**
  * @brief Error codes
@@ -37,14 +38,18 @@ typedef enum {
     ERR_INVALID_ARG = -2,
     ERR_TIMEOUT = -3,
     ERR_NOT_INIT = -4,
-    ERR_QUEUE_FULL = -5
+    ERR_QUEUE_FULL = -5,
+    ERR_CONTRACT_VIOLATION = -6  // New: ML contract violation
 } error_code_t;
 
 /**
  * @brief System configuration constants
+ * 
+ * @note SAMPLING_RATE_HZ and ML_WINDOW_SIZE are part of the ML contract
+ * @note Changing these requires model retraining
  */
 #define SAMPLING_RATE_HZ             20000
-#define WINDOW_SIZE                  256
+#define WINDOW_SIZE                  ML_WINDOW_SIZE  // Use contract definition
 #define WINDOW_OVERLAP               128
 #define CIRCULAR_BUFFER_SIZE         1024
 #define FEATURE_VECTOR_SIZE          16

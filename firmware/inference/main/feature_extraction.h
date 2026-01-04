@@ -4,14 +4,12 @@
  * @details Defines feature vector structure and API for calculating
  *          time-domain and frequency-domain features from signal windows.
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
  * 
  * @note Uses floating-point calculations; ensure FPU is enabled
  * @note FFT implementation is a placeholder; replace with optimized library
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #pragma once

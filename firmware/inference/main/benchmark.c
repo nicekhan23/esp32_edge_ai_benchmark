@@ -4,14 +4,12 @@
  * @details Tracks timing, CPU usage, memory usage, and reliability metrics
  *          for the signal processing pipeline.
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
  * 
  * @note Uses ESP timer for microsecond timing
  * @note CPU usage estimation is simplified; refine for production
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #include "benchmark.h"

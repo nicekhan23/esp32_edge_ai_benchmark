@@ -5,14 +5,12 @@
  *          Includes mean, variance, RMS, zero-crossing rate, skewness, kurtosis, 
  *          crest factor and simple FFT magnitudes.
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
  * 
  * @note Uses floating-point math; ensure FPU is enabled
  * @note FFT implementation is a placeholder; replace with optimized library
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #include "feature_extraction.h"

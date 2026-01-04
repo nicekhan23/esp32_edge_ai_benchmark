@@ -4,14 +4,12 @@
  * @details Provides configurable output in CSV, JSON, human-readable, and silent modes.
  *          Handles raw data, features, inference results, and system statistics.
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
  * 
  * @note Supports real-time streaming and periodic summary outputs
  * @note Thread-safe for multi-task environments
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #include "output.h"
@@ -150,10 +148,10 @@ void output_features(const feature_vector_t *features) {
  * @note Respects s_config.print_inference flag
  * @note In CSV mode, adds newline and flushes stdout
  */
-void output_inference_result(const inference_result_t *result) {
+void output_inference_result(const ml_output_t *result) {
     if (!s_config.print_inference) return;
     
-    const char *type_str = signal_type_to_string(result->type);
+    const char *type_str = ml_class_to_string(result->predicted_class);
     
     if (s_config.mode == OUTPUT_MODE_CSV) {
         printf(",%s,%.3f,%" PRIu64 "\n", 
@@ -197,7 +195,7 @@ void output_window_validation(const window_buffer_t *window, const feature_vecto
     
     printf("\n=== VALIDATION [Window %lu, Label: %s] ===\n", 
            window->window_id, 
-           signal_type_to_string(window->label));
+           ml_class_to_string(window->label));
     printf("Range: [%u - %u] (P2P: %.1f, Est. Amp: %.1f)\n", 
            min_val, max_val, peak_to_peak, estimated_amplitude);
     printf("Mean: %.2f (DC offset indicator)\n", mean);
@@ -258,7 +256,7 @@ void output_acquisition_stats(const acquisition_stats_t *stats) {
  * 
  * @param[in] stats Pointer to inference statistics structure
  * 
- * @note Uses signal_type_to_string for type labels
+ * @note Uses ml_class_to_string for type labels
  */
 void output_inference_stats(const inference_stats_t *stats) {
     printf("\n=== INFERENCE STATS ===\n");
@@ -267,7 +265,7 @@ void output_inference_stats(const inference_stats_t *stats) {
     printf("Accuracy: %.1f%%\n", stats->accuracy * 100);
     
     for (int i = 0; i < SIGNAL_COUNT; i++) {
-        printf("%s: %lu\n", signal_type_to_string(i), stats->per_type_counts[i]);
+        printf("%s: %lu\n", ml_class_to_string(i), stats->per_class_counts[i]);
     }
     printf("======================\n");
 }
@@ -542,15 +540,21 @@ bool output_init(const output_config_t *config) {
         }
         
         if (s_config.mode == OUTPUT_MODE_CSV) {
-            printf("timestamp_us,window_id,sample_rate");
+            // RAW DATA COLLECTION HEADER (simplified)
+            printf("timestamp_us,window_id,label,sample_rate_hz");
+            
+            // Raw sample columns
             for (int i = 0; i < WINDOW_SIZE; i++) {
                 printf(",sample_%d", i);
             }
-            printf(",features");
-            for (int i = 0; i < FEATURE_VECTOR_SIZE; i++) {
-                printf(",feature_%d", i);
-            }
-            printf(",signal_type,confidence,inference_time_us\n");
+            printf("\n");
+            
+            // Additional metadata columns
+            printf("# COLUMNS: timestamp_us,window_id,label,sample_rate_hz,sample_0...sample_%d\n", WINDOW_SIZE-1);
+            printf("# LABELS: 0=SINE,1=SQUARE,2=TRIANGLE,3=SAWTOOTH,4=NOISE\n");
+            printf("# SAMPLING_RATE: %d Hz\n", SAMPLING_RATE_HZ);
+            printf("# WINDOW_SIZE: %d samples\n", WINDOW_SIZE);
+            
             s_csv_header_printed = true;
         }
         
@@ -592,46 +596,41 @@ void output_cleanup(void) {
  */
 void output_ml_dataset_row(const window_buffer_t *window, 
                            const feature_vector_t *features,
-                           const inference_result_t *result) {
+                           const ml_output_t *result) {
     static bool header_printed = false;
     
     // Print headers first time only
     if (!header_printed) {
-        // Fixed columns
-        printf("Type,timestamp_us,window_id,label,sample_rate_hz");
-        
-        // Feature columns (16 features from FEATURE_VECTOR_SIZE)
-        for (int i = 0; i < FEATURE_VECTOR_SIZE; i++) {
-            printf(",feature_%d", i);
-        }
-        
-        // Inference result columns
-        printf(",predicted_type,confidence");
+        // Simple header for raw data collection
+        printf("timestamp_us,window_id,label,sample_rate_hz");
         
         // Raw sample columns
         for (int i = 0; i < WINDOW_SIZE; i++) {
             printf(",sample_%d", i);
         }
         printf("\n");
+        
+        // Print metadata as comments
+        printf("# ML TRAINING DATASET - RAW MODE\n");
+        printf("# LABEL MAPPING: 0=SINE, 1=SQUARE, 2=TRIANGLE, 3=SAWTOOTH, 4=NOISE\n");
+        printf("# SAMPLING_RATE: %d Hz\n", SAMPLING_RATE_HZ);
+        printf("# WINDOW_SIZE: %d samples\n", WINDOW_SIZE);
+        printf("# TIMESTAMP: microseconds since boot\n");
+        printf("# COLLECTION_DATE: %s\n", __DATE__);
+        printf("# COLLECTION_TIME: %s\n", __TIME__);
+        printf("#\n");
+        
         header_printed = true;
     }
     
-    // CSV format: timestamp, window_id, label, features..., samples...
-    printf("ML_DATA,%" PRIu64 ",%lu,%d,%.2f,",
+    // CSV format: timestamp, window_id, label, sample_rate, samples...
+    printf("%" PRIu64 ",%lu,%d,%.2f,",
            window->timestamp_us,
            window->window_id,
-           window->label,  // Ground truth
+           window->label,  // Ground truth from signal generator
            window->sample_rate_hz);
     
-    // All features
-    for (int i = 0; i < FEATURE_VECTOR_SIZE; i++) {
-        printf("%.6f,", features->features[i]);
-    }
-    
-    // Inference result for comparison
-    printf("%d,%.4f,", result->type, result->confidence);
-    
-    // Raw samples (for waveform reconstruction)
+    // Raw samples
     for (int i = 0; i < WINDOW_SIZE; i++) {
         printf("%u", window->samples[i]);
         if (i < WINDOW_SIZE - 1) printf(",");
@@ -649,7 +648,7 @@ void output_confusion_matrix(void) {
     printf("\n=== CONFUSION MATRIX ===\n");
     printf("True\\Pred  SINE  SQUA  TRI   SAW   NOIS\n");
     for (int i = 0; i < 5; i++) {
-        printf("%-10s", signal_type_to_string(i));
+        printf("%-10s", ml_class_to_string(i));
         for (int j = 0; j < 5; j++) {
             printf(" %4lu", confusion[i][j]);
         }
@@ -662,7 +661,7 @@ void output_confusion_matrix(void) {
         for (int j = 0; j < 5; j++) total += confusion[i][j];
         if (total > 0) {
             float accuracy = (float)confusion[i][i] / total * 100;
-            printf("%s accuracy: %.1f%%\n", signal_type_to_string(i), accuracy);
+            printf("%s accuracy: %.1f%%\n", ml_class_to_string(i), accuracy);
         }
     }
 }

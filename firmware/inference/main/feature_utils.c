@@ -4,14 +4,12 @@
  * @details Common mathematical operations used across feature extraction
  *          and signal processing modules.
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
  * 
  * @note Uses floating-point math; ensure FPU is enabled
  * @note All functions are thread-safe (no shared state)
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #include "feature_utils.h"

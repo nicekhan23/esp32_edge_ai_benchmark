@@ -4,14 +4,12 @@
  * @details Provides common statistical calculations used across multiple modules
  *          including moving averages, min/max tracking, and distribution analysis.
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
  * 
  * @note All functions are thread-safe when used with separate instances
  * @note Uses floating-point math; ensure FPU is enabled
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #include "statistics.h"

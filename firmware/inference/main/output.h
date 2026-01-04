@@ -54,7 +54,7 @@ typedef struct {
     union {
         window_buffer_t window;
         feature_vector_t features;
-        inference_result_t inference;
+        ml_output_t inference;
         benchmark_metrics_t benchmark;
         acquisition_stats_t acq_stats;
         inference_stats_t inf_stats;
@@ -72,7 +72,7 @@ bool output_init(const output_config_t *config);
 void output_set_mode(output_mode_t mode);
 void output_raw_window(const window_buffer_t *window);
 void output_features(const feature_vector_t *features);
-void output_inference_result(const inference_result_t *result);
+void output_inference_result(const ml_output_t *result);
 void output_window_validation(const window_buffer_t *window, const feature_vector_t *features);  // SINGLE DECLARATION
 void output_benchmark_summary(const benchmark_metrics_t *metrics);
 void output_acquisition_stats(const acquisition_stats_t *stats);
@@ -82,4 +82,4 @@ void output_flush(void);
 void output_cleanup(void);
 void output_ml_dataset_row(const window_buffer_t *window, 
                            const feature_vector_t *features,
-                           const inference_result_t *result);
+                           const ml_output_t *result);

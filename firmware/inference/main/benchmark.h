@@ -4,14 +4,12 @@
  * @details Defines metrics structures and API for timing, CPU usage,
  *          memory usage, and reliability tracking of signal processing pipeline.
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
  * 
  * @note Uses ESP timer for microsecond precision timing
  * @note CPU usage estimation is simplified; refine for production use
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #pragma once

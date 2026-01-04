@@ -4,14 +4,12 @@
  * @details Implements continuous ADC sampling, circular buffering, and window extraction 
  *          for real-time signal processing. Designed for ESP32 with FreeRTOS.
  * 
- * @author Your Name
+ * @author Darkhan Zhanibekuly
  * @date 2025 December
  * @version 1.0.0
  * 
  * @note Uses ESP32 ADC continuous mode and FreeRTOS queues for inter-task communication
  * @note Thread-safe statistics protected by mutex
- * 
- * @copyright (c) 2025 ESP32 Signal Processing Project
  */
 
 #include "signal_acquisition.h"
@@ -475,4 +473,37 @@ void signal_acquisition_stop(void) {
         // Task will self-terminate
         ESP_LOGI(TAG, "Signal acquisition stopped");
     }
+}
+
+/**
+ * @brief Validate window buffer against ML contract
+ */
+bool signal_acquisition_validate_window(const window_buffer_t *window) {
+    if (!window) {
+        ESP_LOGE(TAG, "Contract violation: null window");
+        return false;
+    }
+    
+    // Check sample validity
+    for (int i = 0; i < ML_WINDOW_SIZE; i++) {
+        if (!ML_VALIDATE_ADC_SAMPLE(window->samples[i])) {
+            ESP_LOGW(TAG, "Contract violation: sample %d out of range: %u", 
+                     i, window->samples[i]);
+            xSemaphoreTake(s_stats_mutex, portMAX_DELAY);
+            s_stats.contract_violations++;
+            xSemaphoreGive(s_stats_mutex);
+            return false;
+        }
+    }
+    
+    // Check label validity
+    if (!ML_VALIDATE_CLASS(window->label)) {
+        ESP_LOGW(TAG, "Contract violation: invalid label: %d", window->label);
+        xSemaphoreTake(s_stats_mutex, portMAX_DELAY);
+        s_stats.contract_violations++;
+        xSemaphoreGive(s_stats_mutex);
+        return false;
+    }
+    
+    return true;
 }
