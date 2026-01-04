@@ -10,10 +10,10 @@ WINDOWS_IP = "192.168.1.120"  # Find with 'ipconfig' on Windows
 UDP_PORT = 5005
 
 signals = [
-    (0, 1000, "sine", 300),
-    (1, 1000, "square", 300),
-    (2, 1000, "triangle", 300),
-    (3, 1000, "sawtooth", 300),
+    (0, 1000, "sine", 600),
+    (1, 1000, "square", 600),
+    (2, 1000, "triangle", 600),
+    (3, 1000, "sawtooth", 600),
 ]
 
 print("=== Generator with UDP Sync ===")
