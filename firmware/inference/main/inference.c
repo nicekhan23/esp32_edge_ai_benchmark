@@ -55,53 +55,53 @@ static signal_type_t classify_simple(const feature_vector_t *features) {
     float variance = features->features[1];     // Variance
     float skewness = features->features[4];     // Skewness
     float crest_factor = features->features[6]; // Crest factor
-    float form_factor = features->features[7];  // Form factor
+    float periodicity = features->features[8];  // New: periodicity
+    float asymmetry = features->features[10];   // New: asymmetry
     
-    // Threshold values (calibrate based on actual signal data)
-    const float NOISE_VARIANCE_THRESHOLD = 100.0f;
-    const float SINE_ZCR_THRESHOLD = 0.35f;
-    const float SQUARE_ZCR_THRESHOLD = 0.05f;
-    const float SAWTOOTH_SKEWNESS_THRESHOLD = 0.3f;
-    const float TRIANGLE_ZCR_MIN = 0.1f;
-    const float TRIANGLE_ZCR_MAX = 0.25f;
-    const float SAWTOOTH_ZCR_MIN = 0.15f;
-    const float SAWTOOTH_ZCR_MAX = 0.3f;
+    // Debug print (enable for testing)
+    // ESP_LOGI(TAG, "ZCR: %.3f, Var: %.1f, Skew: %.3f, Crest: %.3f, Period: %.3f, Asym: %.3f", 
+    //          zcr, variance, skewness, crest_factor, periodicity, asymmetry);
     
-    // Step 1: Check for noise (low variance)
-    if (variance < NOISE_VARIANCE_THRESHOLD) {
+    // Updated thresholds (tune these based on your data)
+    const float NOISE_VAR_THRESH = 50.0f;
+    const float SINE_ZCR_MIN = 0.35f;
+    const float SQUARE_ZCR_MAX = 0.08f;
+    const float SAWTOOTH_SKEW_MIN = 0.4f;
+    const float TRIANGLE_SKEW_MAX = 0.2f;
+    const float SAWTOOTH_ASYMMETRY_MIN = 0.7f;
+    const float SQUARE_CREST_MAX = 1.2f;
+    const float SINE_PERIODICITY_MIN = 0.8f;
+    
+    // 1. Check for noise
+    if (variance < NOISE_VAR_THRESH) {
         return SIGNAL_NOISE;
     }
     
-    // Step 2: Check for sine wave (high ZCR)
-    if (zcr > SINE_ZCR_THRESHOLD) {
+    // 2. Check for sine (high ZCR, high periodicity)
+    if (zcr > SINE_ZCR_MIN && periodicity > SINE_PERIODICITY_MIN) {
         return SIGNAL_SINE;
     }
     
-    // Step 3: Check for square wave (very low ZCR)
-    if (zcr < SQUARE_ZCR_THRESHOLD) {
+    // 3. Check for square (very low ZCR, low crest factor)
+    if (zcr < SQUARE_ZCR_MAX && crest_factor < SQUARE_CREST_MAX) {
         return SIGNAL_SQUARE;
     }
     
-    // Step 4: Distinguish between triangle and sawtooth
-    if (zcr >= TRIANGLE_ZCR_MIN && zcr <= TRIANGLE_ZCR_MAX) {
-        // Check skewness for sawtooth (asymmetric)
-        if (fabsf(skewness) > SAWTOOTH_SKEWNESS_THRESHOLD) {
-            return SIGNAL_SAWTOOTH;
-        } else {
-            return SIGNAL_TRIANGLE;
-        }
+    // 4. Check for sawtooth (high skewness, high asymmetry)
+    if (fabsf(skewness) > SAWTOOTH_SKEW_MIN && 
+        asymmetry > SAWTOOTH_ASYMMETRY_MIN) {
+        return SIGNAL_SAWTOOTH;
     }
     
-    // Step 5: Additional sawtooth detection with ZCR range
-    if (zcr >= SAWTOOTH_ZCR_MIN && zcr <= SAWTOOTH_ZCR_MAX) {
-        // Sawtooth often has moderate crest factor (1.4-1.7) and form factor (~1.11)
-        if (crest_factor > 1.4f && crest_factor < 1.8f && 
-            form_factor > 1.05f && form_factor < 1.15f) {
-            return SIGNAL_SAWTOOTH;
-        }
+    // 5. Check for triangle (low skewness, moderate ZCR)
+    if (fabsf(skewness) < TRIANGLE_SKEW_MAX && 
+        zcr > 0.1f && zcr < 0.3f) {
+        return SIGNAL_TRIANGLE;
     }
     
-    // Default: triangle wave
+    // Default based on ZCR
+    if (zcr < 0.1f) return SIGNAL_SQUARE;
+    if (zcr > 0.3f) return SIGNAL_SINE;
     return SIGNAL_TRIANGLE;
 }
 

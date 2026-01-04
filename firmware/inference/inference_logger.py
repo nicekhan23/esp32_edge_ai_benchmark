@@ -9,6 +9,7 @@ output_file = f"dataset_{int(time.time())}.csv"
 # UDP listener
 current_label = 0
 label_name = "unknown"
+last_printed_label = -1  # Initialize tracking variable
 
 def udp_listener():
     global current_label, label_name
@@ -43,6 +44,12 @@ with open(output_file, 'w') as f:
                     parts[3] = str(current_label)  # Replace label column
                     f.write(','.join(parts) + '\n')
                     f.flush()
+                    
+                    # DEBUG: Print first few values when label changes
+                    if int(current_label) != last_printed_label:
+                        print(f"\n[{label_name}] First few samples: {parts[4:10]}")
+                        last_printed_label = current_label
+                    
                     print(f"[{label_name}] ", end='', flush=True)
     except KeyboardInterrupt:
         print(f"\n\nSaved to {output_file}")
