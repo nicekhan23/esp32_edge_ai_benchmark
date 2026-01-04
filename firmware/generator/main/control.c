@@ -7,7 +7,7 @@
  * 
  * @author Darkhan Zhanibekuly
  * @date 2025 December
- * @version 1.0.0
+ * @version 1.1.0  // Updated version
  * 
  * @note Uses argtable3 for command-line argument parsing
  * @note Implements a UART-based console interface at 115200 baud
@@ -94,6 +94,8 @@ static int cmd_config_handler(int argc, char **argv)
         arg_print_errors(stderr, end, argv[0]);
         printf("Usage: %s <wave> <freq>\n", argv[0]);
         printf("  wave: 0=sine, 1=square, 2=triangle, 3=sawtooth\n");
+        printf("  freq: 1-%d Hz (depends on waveform)\n", 
+               (wave->count > 0 && wave->ival[0] == 1) ? 1250 : 5000);
         arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));
         return 1;
     }
@@ -104,6 +106,17 @@ static int cmd_config_handler(int argc, char **argv)
     
     if (freq->count > 0) {
         cfg.frequency_hz = freq->ival[0];
+    }
+    
+    // Apply safe defaults for common issues
+    if (cfg.wave == SIGNAL_WAVE_SQUARE && cfg.frequency_hz > 200) {
+        printf("Warning: Square waves above 200 Hz may be distorted\n");
+        printf("         Consider using <= 200 Hz for clean output\n");
+    }
+    
+    if (cfg.wave == SIGNAL_WAVE_SAWTOOTH && cfg.frequency_hz > 100) {
+        printf("Warning: Sawtooth waves above 100 Hz may be distorted\n");
+        printf("         Consider using <= 100 Hz for clean output\n");
     }
     
     signal_gen_set_config(&cfg);
@@ -125,8 +138,17 @@ static int cmd_config_handler(int argc, char **argv)
  */
 static int cmd_status_handler(int argc, char **argv)
 {
+    const signal_gen_config_t *cfg = signal_gen_get_config();
     printf("Current configuration:\n");
     signal_gen_emit_label();
+    printf("Sample rate: 20000 Hz\n");
+    printf("Waveform buffer: 400 samples\n");
+    printf("DAC safe range: 10-245 (full 0-255)\n");
+    printf("Max frequencies:\n");
+    printf("  Sine: 5000 Hz\n");
+    printf("  Triangle: 2500 Hz\n");
+    printf("  Square: 1250 Hz (band-limited)\n");
+    printf("  Sawtooth: 1000 Hz\n");
     return 0;
 }
 
@@ -149,7 +171,15 @@ static int cmd_help_handler(int argc, char **argv)
     printf("  config <wave> <freq>      - Configure signal\n");
     printf("  status                    - Show current configuration\n");
     printf("  help                      - Show this help\n");
-    printf("\n");
+    printf("\nRecommended frequencies for clean output:\n");
+    printf("  Sine:     50-2000 Hz\n");
+    printf("  Triangle: 20-500 Hz\n");
+    printf("  Square:   5-200 Hz  (band-limited)\n");
+    printf("  Sawtooth: 5-100 Hz\n");
+    printf("\nNotes:\n");
+    printf("  - Amplitude + |DC offset| must be ≤ 1.0\n");
+    printf("  - Higher frequencies may show distortion\n");
+    printf("  - Add RC filter for best results\n");
     return 0;
 }
 
@@ -252,7 +282,13 @@ void control_init(void)
     
     // Print welcome message and command summary
     printf("\n========================================\n");
-    printf("        ESP32 Signal Generator\n");
+    printf("        ESP32 Signal Generator v1.1\n");
+    printf("========================================\n");
+    printf("Fixed issues:\n");
+    printf("  - DAC channel configuration\n");
+    printf("  - Band-limited square wave\n");
+    printf("  - Safe DAC range (10-245)\n");
+    printf("  - Waveform-specific frequency limits\n");
     printf("========================================\n");
     printf("Commands:\n");
     printf("  start                     - Start signal generation\n");
@@ -261,6 +297,11 @@ void control_init(void)
     printf("  wave: 0=sine, 1=square, 2=triangle, 3=sawtooth\n");
     printf("  status                    - Show current configuration\n");
     printf("  help                      - Show this help\n");
+    printf("========================================\n");
+    printf("Hardware recommendations:\n");
+    printf("  - Add RC filter: 1kΩ + 100nF to GND\n");
+    printf("  - Use shielded cable for output\n");
+    printf("  - Keep analog/digital grounds separate\n");
     printf("========================================\n\n");
     
     // Start the REPL (this function does not return)
