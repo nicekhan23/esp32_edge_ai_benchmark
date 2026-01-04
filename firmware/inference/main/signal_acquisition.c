@@ -25,7 +25,7 @@
 // Private constants
 #define ADC_UNIT                    ADC_UNIT_1             /**< ADC unit to use (1 or 2) */
 #define ADC_CONV_MODE               ADC_CONV_SINGLE_UNIT_1 /**< ADC conversion mode */
-#define ADC_ATTEN                   ADC_ATTEN_DB_12        /**< ADC attenuation level (12dB) */
+#define ADC_ATTEN                   ADC_ATTEN_DB_0         /**< ADC attenuation level (0dB) */
 #define ADC_BIT_WIDTH               ADC_BITWIDTH_12        /**< ADC resolution (12-bit) */
 #define ADC_FRAME_BYTES             512                    /**< Bytes per ADC read frame */
 

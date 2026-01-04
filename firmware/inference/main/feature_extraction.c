@@ -18,6 +18,7 @@
 #include "feature_extraction.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 // Private helper functions
 
@@ -34,6 +35,49 @@ static float calculate_mean_value(const uint16_t *samples, uint32_t count) {
         sum += samples[i];
     }
     return sum / count;
+}
+
+/**
+ * @brief Remove DC offset from sample array
+ * 
+ * @param[in] samples Array of ADC samples
+ * @param[in] count Number of samples
+ * @param[out] output Array to store mean-removed samples
+ */
+static void remove_dc_offset(const uint16_t *samples, uint32_t count, float *output) {
+    float mean = calculate_mean_value(samples, count);
+    for (uint32_t i = 0; i < count; i++) {
+        output[i] = (float)samples[i] - mean;
+    }
+}
+
+/**
+ * @brief Calculate zero-crossing rate of sample array
+ * 
+ * @param[in] samples Array of ADC samples
+ * @param[in] count Number of samples
+ * @return float Zero-crossing rate (fraction of crossings)
+ */
+float calculate_zero_crossing_rate(const uint16_t *samples, uint32_t count) {
+    if (count < 2) return 0.0f;
+    
+    // Use DC-removed samples
+    float *dc_removed = malloc(count * sizeof(float));
+    if (!dc_removed) return 0.0f;
+    
+    remove_dc_offset(samples, count, dc_removed);
+    
+    uint32_t zero_crossings = 0;
+    
+    for (uint32_t i = 1; i < count; i++) {
+        if ((dc_removed[i-1] > 0.0f && dc_removed[i] <= 0.0f) || 
+            (dc_removed[i-1] <= 0.0f && dc_removed[i] > 0.0f)) {
+            zero_crossings++;
+        }
+    }
+    
+    free(dc_removed);
+    return (float)zero_crossings / (count - 1);
 }
 
 /**
@@ -98,6 +142,116 @@ static float calculate_kurtosis_value(const uint16_t *samples, uint32_t count, f
 }
 
 /**
+ * @brief Calculate signal periodicity using autocorrelation
+ * 
+ * @param[in] samples Array of ADC samples
+ * @param[in] count Number of samples
+ * @return float Periodicity score (0.0 to 1.0)
+ */
+float calculate_periodicity(const uint16_t *samples, uint32_t count) {
+    if (count < 64) return 0.0f;
+    
+    float mean = calculate_mean_value(samples, count);
+    float max_corr = 0.0f;
+    
+    // Only check reasonable lags (up to 1/4 of window)
+    for (int lag = 8; lag < count/4; lag++) {
+        float correlation = 0.0f;
+        float norm1 = 0.0f;
+        float norm2 = 0.0f;
+        
+        for (int i = 0; i < count - lag; i++) {
+            float x1 = samples[i] - mean;
+            float x2 = samples[i + lag] - mean;
+            correlation += x1 * x2;
+            norm1 += x1 * x1;
+            norm2 += x2 * x2;
+        }
+        
+        if (norm1 > 0.0f && norm2 > 0.0f) {
+            float corr = correlation / sqrtf(norm1 * norm2);
+            if (corr > max_corr) {
+                max_corr = corr;
+            }
+        }
+    }
+    
+    return max_corr;
+}
+
+/**
+ * @brief Calculate harmonic ratio (energy in harmonics vs fundamental)
+ * 
+ * @param[in] samples Array of ADC samples
+ * @param[in] count Number of samples
+ * @return float Harmonic ratio
+ */
+float calculate_harmonic_ratio(const uint16_t *samples, uint32_t count) {
+    // Simple placeholder - replace with actual FFT
+    // For sawtooth: rich harmonics
+    // For triangle: odd harmonics only
+    // For sine: pure tone (no harmonics)
+    
+    // Calculate mean removed samples
+    float mean = calculate_mean_value(samples, count);
+    float *normalized = malloc(count * sizeof(float));
+    if (!normalized) return 0.0f;
+    
+    for (int i = 0; i < count; i++) {
+        normalized[i] = samples[i] - mean;
+    }
+    
+    // Simple harmonic estimation using zero crossings
+    float zcr = calculate_zero_crossing_rate(samples, count);
+    
+    // Heuristic: sawtooth has higher variance and moderate ZCR
+    free(normalized);
+    
+    if (zcr > 0.3f) return 0.1f;  // Sine-like
+    if (zcr < 0.05f) return 0.3f; // Square-like
+    return 0.6f;  // Triangle/Sawtooth
+}
+
+/**
+ * @brief Calculate slope asymmetry (detects sawtooth vs triangle)
+ * 
+ * @param[in] samples Array of ADC samples
+ * @param[in] count Number of samples
+ * @return float Asymmetry ratio (0.5 = symmetric, >0.5 = positive saw, <0.5 = negative saw)
+ */
+float calculate_asymmetry(const uint16_t *samples, uint32_t count) {
+    if (count < 2) return 0.5f;
+    
+    uint16_t min_val = samples[0];
+    uint16_t max_val = samples[0];
+    int min_idx = 0;
+    int max_idx = 0;
+    
+    // Find min and max
+    for (int i = 1; i < count; i++) {
+        if (samples[i] < min_val) {
+            min_val = samples[i];
+            min_idx = i;
+        }
+        if (samples[i] > max_val) {
+            max_val = samples[i];
+            max_idx = i;
+        }
+    }
+    
+    if (max_val == min_val) return 0.5f;
+    
+    // Analyze rise time vs fall time
+    float normalized_min = (float)(min_idx) / count;
+    float normalized_max = (float)(max_idx) / count;
+    
+    // Asymmetry ratio
+    float asymmetry = fabsf(normalized_max - normalized_min);
+    
+    return asymmetry;
+}
+
+/**
  * @brief Public wrapper for mean calculation
  * 
  * @param[in] samples Array of ADC samples
@@ -133,38 +287,6 @@ float calculate_rms(const uint16_t *samples, uint32_t count) {
         sum_sq += (float)samples[i] * (float)samples[i];
     }
     return sqrtf(sum_sq / count);
-}
-
-/**
- * @brief Calculate Zero Crossing Rate (ZCR)
- * 
- * Counts sign changes between consecutive samples, normalized by window length.
- * 
- * @param[in] samples Array of ADC samples
- * @param[in] count Number of samples
- * @return float ZCR (0.0 to 1.0)
- */
-float calculate_zero_crossing_rate(const uint16_t *samples, uint32_t count) {
-    if (count < 2) return 0.0f;
-    
-    // Calculate mean for DC offset removal
-    float mean = calculate_mean_value(samples, count);
-    
-    uint32_t zero_crossings = 0;
-    float prev_sample = (float)samples[0] - mean;
-    
-    for (uint32_t i = 1; i < count; i++) {
-        float current_sample = (float)samples[i] - mean;
-        
-        // Check for sign change
-        if ((prev_sample > 0.0f && current_sample <= 0.0f) || 
-            (prev_sample <= 0.0f && current_sample > 0.0f)) {
-            zero_crossings++;
-        }
-        prev_sample = current_sample;
-    }
-    
-    return (float)zero_crossings / (count - 1);
 }
 
 /**
@@ -271,39 +393,50 @@ void calculate_fft_features(const uint16_t *samples, uint32_t count, float *fft_
  * @note Copies window metadata (timestamp, ID) to feature vector
  */
 void extract_features(const window_buffer_t *window, feature_vector_t *features) {
-    // Time-domain basic features
+    // Basic features
     float mean = calculate_mean(window->samples, WINDOW_SIZE);
     float variance = calculate_variance(window->samples, WINDOW_SIZE, mean);
     float rms = calculate_rms(window->samples, WINDOW_SIZE);
     float zcr = calculate_zero_crossing_rate(window->samples, WINDOW_SIZE);
     
-    // Time-domain advanced features (for sawtooth detection)
+    // Advanced features
     float skewness = calculate_skewness_value(window->samples, WINDOW_SIZE, mean, variance);
     float kurtosis = calculate_kurtosis_value(window->samples, WINDOW_SIZE, mean, variance);
     float crest_factor = calculate_crest_factor(window->samples, WINDOW_SIZE, rms);
     float form_factor = calculate_form_factor(window->samples, WINDOW_SIZE, rms);
     
-    // Frequency-domain features
-    float fft_features[8];
-    calculate_fft_features(window->samples, WINDOW_SIZE, fft_features);
+    // New features for better discrimination
+    float periodicity = calculate_periodicity(window->samples, WINDOW_SIZE);
+    float harmonic_ratio = calculate_harmonic_ratio(window->samples, WINDOW_SIZE);
+    float asymmetry = calculate_asymmetry(window->samples, WINDOW_SIZE);
     
-    // Populate feature vector (16 features total)
-    features->features[0] = mean;           // Feature 0: Mean
-    features->features[1] = variance;       // Feature 1: Variance
-    features->features[2] = rms;            // Feature 2: RMS
-    features->features[3] = zcr;            // Feature 3: Zero Crossing Rate
-    features->features[4] = skewness;       // Feature 4: Skewness (sawtooth asymmetry)
-    features->features[5] = kurtosis;       // Feature 5: Kurtosis (waveform shape)
-    features->features[6] = crest_factor;   // Feature 6: Crest Factor
-    features->features[7] = form_factor;    // Feature 7: Form Factor
-    
-    // FFT features (7 features)
-    for (int i = 0; i < 7 && i < 8; i++) {
-        features->features[8 + i] = fft_features[i];
+    // Peak statistics
+    uint16_t min_val = window->samples[0];
+    uint16_t max_val = window->samples[0];
+    for (int i = 1; i < WINDOW_SIZE; i++) {
+        if (window->samples[i] < min_val) min_val = window->samples[i];
+        if (window->samples[i] > max_val) max_val = window->samples[i];
     }
+    float peak_to_peak = max_val - min_val;
+    float duty_cycle_estimate = 0.5f;  // Placeholder
     
-    // Additional metadata as features
-    features->features[15] = (float)window->sample_rate_hz / 1000.0f; // Normalized sample rate
+    // Populate feature vector (now 16 features)
+    features->features[0] = mean;                 // 0: Mean
+    features->features[1] = variance;             // 1: Variance
+    features->features[2] = rms;                  // 2: RMS
+    features->features[3] = zcr;                  // 3: Zero Crossing Rate
+    features->features[4] = skewness;             // 4: Skewness
+    features->features[5] = kurtosis;             // 5: Kurtosis
+    features->features[6] = crest_factor;         // 6: Crest Factor
+    features->features[7] = form_factor;          // 7: Form Factor
+    features->features[8] = periodicity;          // 8: Periodicity
+    features->features[9] = harmonic_ratio;       // 9: Harmonic Ratio
+    features->features[10] = asymmetry;           // 10: Asymmetry
+    features->features[11] = peak_to_peak;        // 11: Peak-to-Peak
+    features->features[12] = (float)min_val;      // 12: Minimum
+    features->features[13] = (float)max_val;      // 13: Maximum
+    features->features[14] = duty_cycle_estimate; // 14: Duty Cycle (est)
+    features->features[15] = (float)window->sample_rate_hz / 1000.0f; // 15: Sample Rate (kHz)
     
     // Copy metadata
     features->timestamp_us = window->timestamp_us;
