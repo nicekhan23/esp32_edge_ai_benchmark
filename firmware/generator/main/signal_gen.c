@@ -38,7 +38,7 @@
 
 /* ================== Hardware Configuration ================== */
 
-#define DAC_CHANNEL        DAC_CHAN_0      /**< DAC channel 0 (GPIO25) */
+#define DAC_CHANNEL        DAC_CHAN0_GPIO_NUM      /**< DAC channel 0 (GPIO25) */
 #define SAMPLE_RATE_HZ     20000           /**< Fixed DAC sample rate in Hertz */
 #define WAVE_TABLE_SIZE    400             /**< Size of waveform buffer in samples */
 #define DAC_MAX            255             /**< Maximum DAC value (8-bit) */
@@ -279,6 +279,11 @@ void signal_gen_set_config(const signal_gen_config_t *cfg) {
     
     // Regenerate waveform with new parameters
     generate_waveform(wave_buffer, WAVE_TABLE_SIZE);
+
+    // FIX: Add small delay to ensure UART transmission completes
+    vTaskDelay(pdMS_TO_TICKS(10));
+    signal_gen_broadcast_label();
+    vTaskDelay(pdMS_TO_TICKS(10));
     
     // FIX: Broadcast label change for synchronization
     signal_gen_broadcast_label();
