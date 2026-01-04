@@ -593,6 +593,29 @@ void output_cleanup(void) {
 void output_ml_dataset_row(const window_buffer_t *window, 
                            const feature_vector_t *features,
                            const inference_result_t *result) {
+    static bool header_printed = false;
+    
+    // Print headers first time only
+    if (!header_printed) {
+        // Fixed columns
+        printf("Type,timestamp_us,window_id,label,sample_rate_hz");
+        
+        // Feature columns (16 features from FEATURE_VECTOR_SIZE)
+        for (int i = 0; i < FEATURE_VECTOR_SIZE; i++) {
+            printf(",feature_%d", i);
+        }
+        
+        // Inference result columns
+        printf(",predicted_type,confidence");
+        
+        // Raw sample columns
+        for (int i = 0; i < WINDOW_SIZE; i++) {
+            printf(",sample_%d", i);
+        }
+        printf("\n");
+        header_printed = true;
+    }
+    
     // CSV format: timestamp, window_id, label, features..., samples...
     printf("ML_DATA,%" PRIu64 ",%lu,%d,%.2f,",
            window->timestamp_us,

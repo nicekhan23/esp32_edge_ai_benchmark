@@ -17,22 +17,7 @@
 #pragma once
 
 #include "feature_extraction.h"
-
-/**
- * @brief Enumeration of detectable signal types
- * 
- * Defines the set of signal waveforms that the inference engine
- * can classify, plus unknown and count sentinel values.
- */
-typedef enum {
-    SIGNAL_UNKNOWN = -1,   /**< Unable to classify signal */
-    SIGNAL_SINE = 0,       /**< Sine wave signal */
-    SIGNAL_SQUARE = 1,     /**< Square wave signal */
-    SIGNAL_TRIANGLE = 2,   /**< Triangle wave signal */
-    SIGNAL_SAWTOOTH = 3,   /**< Sawtooth wave signal */
-    SIGNAL_NOISE = 4,      /**< Random noise signal */
-    SIGNAL_COUNT           /**< Number of signal types (for array sizing) */
-} signal_type_t;
+#include "common.h"
 
 /**
  * @brief Inference result structure

@@ -134,21 +134,3 @@ void benchmark_log_summary(void);
  * @post All metrics zeroed, min times set to UINT64_MAX
  */
 void benchmark_reset(void);
-
-/**
- * @brief Monitor CPU usage (placeholder)
- * 
- * Intended for detailed CPU usage monitoring (not yet implemented).
- * 
- * @note Currently implemented in benchmark_update_metrics()
- */
-void benchmark_monitor_cpu_usage(void);
-
-/**
- * @brief Monitor memory usage (placeholder)
- * 
- * Intended for detailed memory usage monitoring (not yet implemented).
- * 
- * @note Currently implemented in benchmark_update_metrics()
- */
-void benchmark_monitor_memory_usage(void);

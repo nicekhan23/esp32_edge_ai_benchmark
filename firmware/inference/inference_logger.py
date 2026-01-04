@@ -33,7 +33,31 @@ listener_thread.start()
 print(f"Logging to {output_file}")
 print("Waiting for labels over UDP...\n")
 
+# Generate column headers based on your feature extraction
+def generate_headers():
+    # Fixed columns at the beginning
+    headers = ["Type", "timestamp_us", "window_id", "label", "sample_rate_hz"]
+    
+    # Feature columns (16 features from your code)
+    for i in range(16):
+        headers.append(f"feature_{i}")
+    
+    # Inference result columns
+    headers.extend(["predicted_type", "confidence"])
+    
+    # Raw sample columns (WINDOW_SIZE samples)
+    for i in range(256):  # WINDOW_SIZE from your code
+        headers.append(f"sample_{i}")
+    
+    return headers
+
 with open(output_file, 'w') as f:
+    # Write headers first
+    headers = generate_headers()
+    f.write(','.join(headers) + '\n')
+    f.flush()
+    print(f"CSV headers written: {len(headers)} columns")
+    
     try:
         while True:
             line = inf.readline().decode('utf-8', errors='ignore').strip()

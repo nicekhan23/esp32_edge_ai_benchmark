@@ -15,6 +15,7 @@
  */
 
 #include "signal_acquisition.h"
+#include "common.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_timer.h"
@@ -42,7 +43,7 @@ static TaskHandle_t s_capture_task_handle = NULL;       /**< Handle for capture 
 static SemaphoreHandle_t s_stats_mutex = NULL;          /**< Mutex for statistics protection */
 static adc_continuous_handle_t s_adc_handle = NULL;     /**< ADC continuous mode handle */
 static volatile bool s_capture_running = false;         /**< Capture state flag */
-static signal_wave_t s_current_label = SIGNAL_WAVE_SINE;  /**< Current ground truth label from generator */
+static signal_type_t s_current_label = SIGNAL_SINE;  /**< Current ground truth label from generator */
 
 // Circular buffer
 static uint16_t s_circular_buffer[CIRCULAR_BUFFER_SIZE]; /**< Circular buffer for raw samples */
@@ -137,7 +138,7 @@ static void continuous_adc_init(void) {
  * 
  * @post s_current_label is updated
  */
-void signal_acquisition_update_label(signal_wave_t label) {
+void signal_acquisition_update_label(signal_type_t label) {
     s_current_label = label;
     ESP_LOGI(TAG, "Label updated to: %d", label);
 }
@@ -357,7 +358,7 @@ static void uart_label_task(void *arg) {
             if (strstr(rx_buffer, "SYNC LABEL")) {
                 int wave;
                 if (sscanf(rx_buffer, "SYNC LABEL wave=%d", &wave) == 1) {
-                    signal_acquisition_update_label((signal_wave_t)wave);
+                    signal_acquisition_update_label((signal_type_t)wave);
                 }
             }
         }

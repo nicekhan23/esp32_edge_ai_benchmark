@@ -15,6 +15,8 @@
  */
 
 #include "inference.h"
+#include "common.h"
+#include "statistics.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include <string.h>
@@ -37,6 +39,9 @@ static uint8_t *tensor_arena = NULL;
  * @brief Inference statistics
  */
 static inference_stats_t s_stats = {0};
+
+static moving_average_t s_confidence_avg;
+static min_max_tracker_t s_inference_time_tracker;
 
 /**
  * @brief Enhanced signal classifier with sawtooth detection
@@ -123,6 +128,9 @@ void inference_init(void) {
         ESP_LOGE(TAG, "Failed to allocate tensor arena");
         return;
     }
+
+    moving_average_init(&s_confidence_avg);
+    min_max_tracker_init(&s_inference_time_tracker);
     
     // TODO: Load TensorFlow Lite model
     // tflite::MicroInterpreter* interpreter = ...
@@ -147,7 +155,7 @@ inference_result_t run_inference(const feature_vector_t *features) {
     inference_result_t result;
     result.window_id = features->window_id;
     
-    // Run classification
+    // Run classification FIRST
     result.type = classify_simple(features);
     
     // Calculate confidence based on feature values
@@ -177,6 +185,10 @@ inference_result_t run_inference(const feature_vector_t *features) {
     
     result.confidence = confidence;
     result.inference_time_us = esp_timer_get_time() - start_time;
+    
+    // NOW update the trackers with the ACTUAL calculated values
+    min_max_tracker_update(&s_inference_time_tracker, (float)result.inference_time_us);
+    moving_average_update(&s_confidence_avg, result.confidence);
     
     // Update statistics
     s_stats.total_inferences++;

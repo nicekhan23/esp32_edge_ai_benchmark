@@ -18,6 +18,8 @@
 
 #include "signal_acquisition.h"
 #include <stdint.h>
+#include "common.h"
+#include "statistics.h"
 
 #define FEATURE_VECTOR_SIZE 16  /**< Dimensionality of feature vector for ML */
 
