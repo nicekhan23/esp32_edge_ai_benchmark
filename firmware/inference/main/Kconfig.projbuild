@@ -1,0 +1,35 @@
+menu "Signal Inference Configuration"
+
+    config INFERENCE_SAMPLE_WINDOW_SIZE
+        int "Sample window size"
+        range 64 1024
+        default 256
+        help
+            Number of samples per inference window.
+
+    config INFERENCE_USE_FFT
+        bool "Use FFT for feature extraction"
+        default n
+        help
+            Enable FFT-based feature extraction before inference.
+
+    config INFERENCE_PREPROCESS_OPTIONS
+        hex "Preprocessing options"
+        default 0x03
+        help
+            Bitmask of preprocessing options (DC removal, normalization, windowing).
+
+    config INFERENCE_UART_BAUD_RATE
+        int "UART baud rate for labels"
+        default 115200
+        help
+            Baud rate for receiving ground-truth labels.
+
+    config INFERENCE_LOG_LEVEL
+        int "Log level"
+        range 0 5
+        default 3
+        help
+            ESP_LOG level (0-5, higher = more verbose).
+
+endmenu

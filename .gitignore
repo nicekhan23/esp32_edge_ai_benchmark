@@ -23,7 +23,6 @@ build/
 *.a
 *.out
 *.exe # For any host-side utilities compiled on Windows
-*.csv
 
 # ESP-IDF specific build outputs
 *.bin
@@ -77,6 +76,5 @@ Desktop.ini
 *.workspace # General workspace files, can be from various tools
 *.suo       # Visual Studio Solution User Options
 *.sln.docstates # Visual Studio
-.vscode
-.devcontainer
-.clangd
+.vscode/
+*.csv
