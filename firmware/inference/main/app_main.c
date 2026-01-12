@@ -1,5 +1,5 @@
 /*
- * Signal Inference Pipeline
+ * Signal Inference Pipeline - Thesis Implementation
  * Acquisition and inference subsystem for ESP32
  */
 
@@ -17,7 +17,7 @@
 #include "preprocessing.h"
 #include "inference.h"
 #include "system_monitor.h"
-#include "data_collection.h" // For data collection functions
+#include "data_collection.h"
 #include "signal_processing.h"
 #include "benchmark.h"
 
@@ -63,11 +63,11 @@ static void uart_receive_task(void *arg)
                     if (label_index > 0) {
                         label_buffer[label_index] = 0;
                         
-                        // Parse label - CHANGED TO MATCH GENERATOR FORMAT
-                        if (strstr(label_buffer, "LBL:")) {  // Was: "LABEL:"
-                            char *label = label_buffer + 4;  // Was: +6 (skip "LBL:" instead of "LABEL:")
+                        // Parse label
+                        if (strstr(label_buffer, "LBL:")) {
+                            char *label = label_buffer + 4;
                             
-                            // Clean up trailing whitespace if any
+                            // Clean up trailing whitespace
                             char *end = label + strlen(label) - 1;
                             while (end > label && (*end == '\n' || *end == '\r' || *end == ' ')) {
                                 *end = 0;
@@ -79,7 +79,6 @@ static void uart_receive_task(void *arg)
                             if (queue_label) {
                                 strcpy(queue_label, label);
                                 xQueueSend(s_labels_queue, &queue_label, portMAX_DELAY);
-                                ESP_LOGI(TAG, "Received label: %s", label);
                             }
                         }
                         label_index = 0;
@@ -106,15 +105,7 @@ static void adc_sampling_task(void *arg)
         esp_err_t ret = adc_sampling_read(handle, raw_samples, SAMPLE_WINDOW_SIZE, &sample_count);
         
         if (ret == ESP_OK && sample_count == SAMPLE_WINDOW_SIZE) {
-            // DEBUG: Log raw ADC values occasionally
-            static int debug_counter = 0;
-            if (debug_counter++ % 100 == 0) {
-                ESP_LOGI(TAG, "Raw ADC: [0]=%d, [127]=%d, [255]=%d", 
-                         raw_samples[0], raw_samples[127], raw_samples[255]);
-            }
-            
             // Convert to float for processing with proper scaling
-            // ADC reads 12-bit (0-4095), convert to -1 to 1
             for (int i = 0; i < SAMPLE_WINDOW_SIZE; i++) {
                 g_samples[i] = ((float)raw_samples[i] / 2048.0f) - 1.0f;
             }
@@ -122,12 +113,58 @@ static void adc_sampling_task(void *arg)
             // Send to inference task
             xQueueSend(s_samples_queue, g_samples, portMAX_DELAY);
             
-            // Log timing
+            // Record timing metrics
             metrics_record_adc_time(esp_timer_get_time());
         }
         
         vTaskDelay(1 / portTICK_PERIOD_MS);
     }
+}
+
+// Determine model type based on Kconfig selection
+static model_type_t get_selected_model_type(void)
+{
+    // Match the same logic as in inference.c
+    #ifdef CONFIG_MODEL_CNN_INT8
+        ESP_LOGI(TAG, "Selected model: CNN_INT8");
+        return MODEL_CNN_INT8;
+    #elif defined(CONFIG_MODEL_CNN_FLOAT32)
+        ESP_LOGI(TAG, "Selected model: CNN_FLOAT32");
+        return MODEL_CNN_FLOAT32;
+    #elif defined(CONFIG_MODEL_MLP_FLOAT32)
+        ESP_LOGI(TAG, "Selected model: MLP_FLOAT32");
+        return MODEL_MLP_FLOAT32;
+    #elif defined(CONFIG_MODEL_MLP_INT8)
+        ESP_LOGI(TAG, "Selected model: MLP_INT8");
+        return MODEL_MLP_INT8;
+    #elif defined(CONFIG_MODEL_HYBRID_FLOAT32)
+        ESP_LOGI(TAG, "Selected model: HYBRID_FLOAT32");
+        return MODEL_HYBRID_FLOAT32;
+    #elif defined(CONFIG_MODEL_HYBRID_INT8)
+        ESP_LOGI(TAG, "Selected model: HYBRID_INT8");
+        return MODEL_HYBRID_INT8;
+    #elif defined(CONFIG_MODEL_HEURISTIC_ONLY)
+        ESP_LOGI(TAG, "Selected model: HEURISTIC_ONLY");
+        return MODEL_NONE;
+    #else
+        ESP_LOGW(TAG, "No model selected in Kconfig, defaulting to heuristic");
+        return MODEL_NONE;
+    #endif
+}
+
+// Determine inference mode based on Kconfig
+static inference_mode_t get_inference_mode(void)
+{
+    // Check if any TFLite model is enabled
+    #if defined(CONFIG_MODEL_CNN_INT8) || defined(CONFIG_MODEL_CNN_FLOAT32) || \
+        defined(CONFIG_MODEL_MLP_FLOAT32) || defined(CONFIG_MODEL_MLP_INT8) || \
+        defined(CONFIG_MODEL_HYBRID_FLOAT32) || defined(CONFIG_MODEL_HYBRID_INT8)
+        ESP_LOGI(TAG, "Using TFLite inference mode");
+        return INFERENCE_MODE_TFLITE;
+    #else
+        ESP_LOGI(TAG, "Using heuristic inference mode");
+        return INFERENCE_MODE_HEURISTIC;
+    #endif
 }
 
 // Inference task
@@ -138,12 +175,13 @@ static void inference_task(void *arg)
     
     // Track when to run benchmarks
     static uint32_t inference_count = 0;
-    static const uint32_t BENCHMARK_INTERVAL = 50; // Run benchmark every 50 inferences
+    static const uint32_t BENCHMARK_INTERVAL = 50;
 
-    // Initialize inference engine
+    // Initialize inference engine based on Kconfig selection
     inference_engine_t engine;
     inference_config_t config = {
-        .mode = INFERENCE_MODE_HEURISTIC,  // Use heuristic mode for now
+        .mode = get_inference_mode(),
+        .model_type = get_selected_model_type(),
         .confidence_threshold = 0.5f,
         .voting_window = 3,
         .enable_voting = false,
@@ -157,24 +195,11 @@ static void inference_task(void *arg)
     
     // Buffer for current label
     char *current_label = NULL;
-    // Add data collection modes
-    bool collect_data_mode = false;  // Set via UART command
     
     while (1) {
         // Wait for new samples
         if (xQueueReceive(s_samples_queue, g_samples, portMAX_DELAY) == pdTRUE) {
             uint64_t start_time = esp_timer_get_time();
-            
-            // DATA COLLECTION MODE
-            if (collect_data_mode && current_label) {
-                data_collection_start("esp32", current_label);
-                for (int i = 0; i < SAMPLE_WINDOW_SIZE; i++) {
-                    data_collection_add_sample(g_samples[i]);
-                }
-                data_collection_finish();
-                vTaskDelay(100 / portTICK_PERIOD_MS);  // Space between collections
-                continue;  // Skip inference for this sample
-            }
             
             // Check for new label
             char *new_label = NULL;
@@ -183,41 +208,16 @@ static void inference_task(void *arg)
                     free(current_label);
                 }
                 current_label = new_label;
-                ESP_LOGI(TAG, "Active ground truth label set to: %s", current_label);
             }
             
             // Preprocessing
             memcpy(g_processed_samples, g_samples, SAMPLE_WINDOW_SIZE * sizeof(float));
             preprocess_samples_fixed(g_processed_samples, SAMPLE_WINDOW_SIZE, PREPROCESS_ALL);
 
-            // ✅ ADD BENCHMARK TRIGGER HERE
+            // Periodic benchmark execution
             inference_count++;
             if (inference_count % BENCHMARK_INTERVAL == 0) {
-                // Run benchmark with current samples
-                ESP_LOGI(TAG, "Running periodic benchmark...");
                 run_benchmark_suite(g_processed_samples, SAMPLE_WINDOW_SIZE, current_label);
-                
-                // Get and display recommendations
-                model_benchmark_t results[10];
-                int num_results = model_get_benchmark_results(results, 10);
-                
-                for (int i = 0; i < num_results; i++) {
-                    ESP_LOGI(TAG, "Model: %s, Acc: %.2f%%, Time: %uus, Flash: %uKB, RAM: %uKB",
-                             results[i].name,
-                             results[i].accuracy * 100,
-                             results[i].inference_time_us,
-                             (unsigned int)results[i].flash_size_kb,
-                             (unsigned int)results[i].ram_usage_kb);
-                }
-                
-                // Get recommendation for constraints
-                model_type_t recommended = model_get_recommended(
-                    512,    // Max 512KB flash
-                    128,    // Max 128KB RAM
-                    0.85f   // Min 85% accuracy
-                );
-                
-                ESP_LOGI(TAG, "Recommended model: %d", (int)recommended);
             }
             
             // Perform inference
@@ -226,33 +226,25 @@ static void inference_task(void *arg)
                 uint64_t end_time = esp_timer_get_time();
                 uint64_t inference_time = end_time - start_time;
                 
-                // Log results
-                ESP_LOGI(TAG, "Inference completed in %llu us", inference_time);
-                ESP_LOGI(TAG, "Predicted: %s (confidence: %.2f)", 
-                         result.predicted_class, result.confidence);
+                // Log inference results
+                ESP_LOGI(TAG, "Inference: %s (%.2f) in %llu us", 
+                         result.predicted_class, result.confidence, inference_time);
                 
                 if (current_label) {
-                    ESP_LOGI(TAG, "Ground truth: %s", current_label);
-                    
-                    // Calculate accuracy if we have ground truth
+                    // Calculate accuracy
                     if (strcmp(result.predicted_class, current_label) == 0) {
                         metrics_record_correct_prediction();
-                        ESP_LOGI(TAG, "✓ CORRECT prediction!");
                     } else {
                         metrics_record_incorrect_prediction();
-                        ESP_LOGW(TAG, "✗ INCORRECT prediction");
                     }
                 }
                 
                 // Record metrics
                 metrics_record_inference_time(inference_time);
-                metrics_record_memory_usage();
                 
                 // Update system health
                 update_system_health(&s_system_health, s_samples_queue, s_labels_queue);
                 check_system_state(&s_system_health);
-                
-                // Log statistics periodically (controlled by metrics_monitor_task)
             }
         }
     }
@@ -260,9 +252,14 @@ static void inference_task(void *arg)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Starting Signal Inference Pipeline");
-    ESP_LOGI(TAG, "Expecting labels with format: LBL:<WAVEFORM>");
-    ESP_LOGI(TAG, "ADC sampling at 20kHz, expecting signal on GPIO34");
+    ESP_LOGI(TAG, "Signal Inference Pipeline - Thesis Implementation");
+    ESP_LOGI(TAG, "Sampling Rate: 20kHz, Window Size: %d samples", SAMPLE_WINDOW_SIZE);
+    
+    // Log selected model configuration
+    model_type_t selected_model = get_selected_model_type();
+    inference_mode_t inference_mode = get_inference_mode();
+    
+    ESP_LOGI(TAG, "Inference Mode: %d, Model Type: %d", inference_mode, selected_model);
     
     // Initialize metrics system
     metrics_init();
@@ -275,7 +272,7 @@ void app_main(void)
     s_labels_queue = xQueueCreate(5, sizeof(char *));
     
     if (!s_samples_queue || !s_labels_queue) {
-        ESP_LOGE(TAG, "Failed to create queues");
+        ESP_LOGE(TAG, "Failed to create communication queues");
         return;
     }
     
@@ -295,7 +292,7 @@ void app_main(void)
     ESP_ERROR_CHECK(uart_driver_install(UART_PORT_NUM, UART_BUF_SIZE * 2, 
                                         UART_BUF_SIZE * 2, 0, NULL, 0));
     
-    // Create tasks
+    // Create tasks with proper priorities
     xTaskCreate(uart_receive_task, "uart_rx", 4096, NULL, 5, NULL);
     xTaskCreate(adc_sampling_task, "adc_sampling", 4096, NULL, 6, &s_adc_task_handle);
     xTaskCreate(inference_task, "inference", 8192, NULL, 4, &s_inference_task_handle);
@@ -303,8 +300,5 @@ void app_main(void)
     // Create monitoring task
     xTaskCreate(metrics_monitor_task, "metrics", 4096, NULL, 3, NULL);
     
-    ESP_LOGI(TAG, "System initialized. Waiting for signal and labels...");
-    ESP_LOGI(TAG, "Connect Generator GPIO25 -> Inference GPIO34");
-    ESP_LOGI(TAG, "Connect Generator GPIO17 -> Inference GPIO16");
-    ESP_LOGI(TAG, "Connect GND to GND");
+    ESP_LOGI(TAG, "System initialized and ready");
 }

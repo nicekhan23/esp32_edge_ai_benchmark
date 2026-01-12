@@ -25,10 +25,14 @@ void data_collection_init(void) {
     s_data_file = fopen("/sdcard/waveform_data.bin", "wb");
     if (s_data_file) {
         ESP_LOGI(TAG, "Binary data collection initialized");
+    } else {
+        ESP_LOGW(TAG, "Failed to open data file");
     }
 }
 
 void data_collection_start(const char *source, const char *label) {
+    (void)source; // Unused parameter
+    
     if (!s_data_file || s_collecting) return;
     
     s_collecting = true;
@@ -36,6 +40,7 @@ void data_collection_start(const char *source, const char *label) {
     
     // Store label for later
     strncpy(s_current_label, label, sizeof(s_current_label) - 1);
+    s_current_label[sizeof(s_current_label) - 1] = '\0';
     
     #ifdef CONFIG_DETAILED_LOGGING
     ESP_LOGI(TAG, "Starting collection: source=%s, label=%s", source, label);
@@ -55,6 +60,7 @@ void data_collection_add_sample(float sample) {
     // Write when buffer is full
     if (s_sample_count >= 256) {
         data_collection_finish_binary(sample_buffer, s_sample_count);
+        s_sample_count = 0;
     }
 }
 

@@ -1,0 +1,14 @@
+// model_config.h
+#ifndef MODEL_CONFIG_H
+#define MODEL_CONFIG_H
+
+// UNCOMMENT ONLY ONE OF THESE:
+ #define USE_CNN_INT8_MODEL
+// #define USE_CNN_FLOAT32_MODEL
+// #define USE_MLP_FLOAT32_MODEL
+// #define USE_MLP_INT8_MODEL
+// #define USE_HYBRID_FLOAT32_MODEL
+// #define USE_HYBRID_INT8_MODEL
+// #define USE_HEURISTIC_ONLY
+
+#endif /* MODEL_CONFIG_H */

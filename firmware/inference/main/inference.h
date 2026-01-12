@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "clock_sync.h"
+#include "benchmark.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,8 +22,9 @@ typedef enum {
 // Inference configuration
 typedef struct {
     inference_mode_t mode;
-    float confidence_threshold;  // Minimum confidence to accept
-    uint32_t voting_window;      // Number of inferences for voting
+    model_type_t model_type;  // ✅ Use existing type from benchmark.h
+    float confidence_threshold;
+    uint32_t voting_window;
     bool enable_voting;
     bool enable_fft;
 } inference_config_t;

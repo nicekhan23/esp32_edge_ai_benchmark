@@ -1,3 +1,4 @@
+// inference.c
 #include "inference.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -5,6 +6,7 @@
 #include "signal_processing.h"
 #include "preprocessing.h"
 #include "system_monitor.h"
+#include "tflite_wrapper.h"
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
@@ -13,19 +15,58 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-// Conditional TFLite inclusion
-#ifdef CONFIG_USE_TENSORFLOW_LITE
-#include "tensorflow/lite/micro/all_ops_resolver.h"
-#include "tensorflow/lite/micro/micro_interpreter.h"
-#include "tensorflow/lite/schema/schema_generated.h"
-#include "tensorflow/lite/version.h"
-#define TFLITE_ENABLED 1
+// Include the single selected model based on Kconfig
+#ifdef CONFIG_MODEL_CNN_INT8
+    #include "cnn_int8_model.h"
+    #define SELECTED_MODEL_TYPE MODEL_CNN_INT8
+    #define SELECTED_MODEL_DATA cnn_int8_model_tflite
+    #define SELECTED_MODEL_SIZE cnn_int8_model_tflite_len
+#elif CONFIG_MODEL_CNN_FLOAT32
+    #include "cnn_float32_model.h"
+    #define SELECTED_MODEL_TYPE MODEL_CNN_FLOAT32
+    #define SELECTED_MODEL_DATA cnn_float32_model_tflite
+    #define SELECTED_MODEL_SIZE cnn_float32_model_tflite_len
+#elif CONFIG_MODEL_MLP_FLOAT32
+    #include "mlp_float32_model.h"
+    #define SELECTED_MODEL_TYPE MODEL_MLP_FLOAT32
+    #define SELECTED_MODEL_DATA mlp_float32_model_tflite
+    #define SELECTED_MODEL_SIZE mlp_float32_model_tflite_len
+#elif CONFIG_MODEL_MLP_INT8
+    #include "mlp_int8_model.h"
+    #define SELECTED_MODEL_TYPE MODEL_MLP_INT8
+    #define SELECTED_MODEL_DATA mlp_int8_model_tflite
+    #define SELECTED_MODEL_SIZE mlp_int8_model_tflite_len
+#elif CONFIG_MODEL_HYBRID_FLOAT32
+    #include "hybrid_float32_model.h"
+    #define SELECTED_MODEL_TYPE MODEL_HYBRID_FLOAT32
+    #define SELECTED_MODEL_DATA hybrid_float32_model_tflite
+    #define SELECTED_MODEL_SIZE hybrid_float32_model_tflite_len
+#elif CONFIG_MODEL_HYBRID_INT8
+    #include "hybrid_int8_model.h"
+    #define SELECTED_MODEL_TYPE MODEL_HYBRID_INT8
+    #define SELECTED_MODEL_DATA hybrid_int8_model_tflite
+    #define SELECTED_MODEL_SIZE hybrid_int8_model_tflite_len
+#elif CONFIG_MODEL_HEURISTIC_ONLY
+    // No TFLite model included
+    #define SELECTED_MODEL_TYPE MODEL_NONE
+    #define SELECTED_MODEL_DATA NULL
+    #define SELECTED_MODEL_SIZE 0
 #else
-#define TFLITE_ENABLED 0
-#pragma message("TensorFlow Lite disabled - using heuristic inference")
+    #warning "No model selected in Kconfig, defaulting to heuristic only"
+    #define SELECTED_MODEL_TYPE MODEL_NONE
+    #define SELECTED_MODEL_DATA NULL
+    #define SELECTED_MODEL_SIZE 0
 #endif
 
-#include "model_data.h"
+// Set TFLITE_ENABLED flag
+#if defined(CONFIG_MODEL_CNN_INT8) || defined(CONFIG_MODEL_CNN_FLOAT32) || \
+    defined(CONFIG_MODEL_MLP_FLOAT32) || defined(CONFIG_MODEL_MLP_INT8) || \
+    defined(CONFIG_MODEL_HYBRID_FLOAT32) || defined(CONFIG_MODEL_HYBRID_INT8)
+    #define TFLITE_ENABLED 1
+#else
+    #define TFLITE_ENABLED 0
+    #pragma message("TensorFlow Lite disabled - using heuristic inference")
+#endif
 
 static const char *TAG = "INFERENCE";
 
@@ -142,6 +183,7 @@ static bool heuristic_inference(float *samples, int num_samples, inference_resul
     
     strncpy(result->predicted_class, s_class_names[predicted_class], 
             sizeof(result->predicted_class) - 1);
+    result->predicted_class[sizeof(result->predicted_class) - 1] = '\0';
     result->confidence = confidence;
     result->num_classes = NUM_CLASSES;
     result->is_voted_result = false;
@@ -149,171 +191,82 @@ static bool heuristic_inference(float *samples, int num_samples, inference_resul
     return true;
 }
 
-#if TFLITE_ENABLED
-// TensorFlow Lite implementation with dynamic memory allocation
+// TFLite inference using C wrapper
 static bool tflite_inference(inference_engine_t *engine, float *samples, int num_samples, inference_result_t *result) {
+    #if TFLITE_ENABLED
     if (!engine->model_data || engine->model_size == 0) {
         ESP_LOGW(TAG, "No TFLite model available");
         return false;
     }
     
-    const tflite::Model* model = tflite::GetModel(engine->model_data);
-    if (model->version() != TFLITE_SCHEMA_VERSION) {
-        ESP_LOGE(TAG, "Model schema version mismatch");
-        return false;
-    }
+    bool success = tflite_inference_cpp(
+        engine->model_data,
+        engine->model_size,
+        samples,
+        num_samples,
+        result->predicted_class,
+        sizeof(result->predicted_class),
+        &result->confidence
+    );
     
-    static tflite::MicroMutableOpResolver<5> resolver;  // Reduced from 10
-    resolver.AddFullyConnected();
-    resolver.AddSoftmax();
-    resolver.AddConv2D();
-    resolver.AddMaxPool2D();
-    resolver.AddReshape();
-    
-    // Calculate required memory
-    tflite::MicroInterpreter temp_interpreter(model, resolver, nullptr, 0);
-    size_t arena_size = temp_interpreter.recommended_arena_size();
-    
-    #ifdef CONFIG_DETAILED_LOGGING
-    ESP_LOGI(TAG, "TFLite arena: %d bytes", arena_size);
-    #endif
-    
-    // Allocate with 10% margin
-    size_t total_size = arena_size * 110 / 100;
-    uint8_t *arena = (uint8_t*)heap_caps_malloc(total_size, MALLOC_CAP_SPIRAM);
-    
-    if (!arena) {
-        // Fallback to internal RAM
-        arena = (uint8_t*)malloc(total_size);
+    if (success) {
+        result->num_classes = NUM_CLASSES;  // Update based on actual model output if needed
+        result->is_voted_result = false;
+        
         #ifdef CONFIG_DETAILED_LOGGING
-        ESP_LOGW(TAG, "Using internal RAM for TFLite");
+        ESP_LOGI(TAG, "TFLite inference: %s (%.2f)", 
+                 result->predicted_class, result->confidence);
         #endif
     }
     
-    if (!arena) {
-        ESP_LOGE(TAG, "Failed to allocate %d bytes", total_size);
-        return false;
-    }
-    
-    tflite::MicroInterpreter interpreter(model, resolver, arena, total_size);
-    
-    if (interpreter.AllocateTensors() != kTfLiteOk) {
-        ESP_LOGE(TAG, "Failed to allocate tensors");
-        free(arena);
-        return false;
-    }
-    
-    // Get input tensor
-    TfLiteTensor* input = interpreter.input(0);
-    
-    // Copy samples to input tensor
-    if (input->type == kTfLiteFloat32) {
-        float* input_data = input->data.f;
-        memcpy(input_data, samples, num_samples * sizeof(float));
-    } else if (input->type == kTfLiteInt8) {
-        int8_t* input_data = input->data.int8;
-        for (int i = 0; i < num_samples; i++) {
-            // Simplified quantization
-            input_data[i] = (int8_t)(samples[i] * 127.0f);
-        }
-    }
-    
-    // Run inference
-    if (interpreter.Invoke() != kTfLiteOk) {
-        ESP_LOGE(TAG, "Failed to invoke interpreter");
-        free(arena);
-        return false;
-    }
-    
-    // Get output tensor
-    TfLiteTensor* output = interpreter.output(0);
-    
-    // Process output
-    float max_prob = 0.0f;
-    int max_index = 0;
-    
-    if (output->type == kTfLiteFloat32) {
-        float* output_data = output->data.f;
-        for (int i = 0; i < output->dims->data[1]; i++) {
-            if (output_data[i] > max_prob) {
-                max_prob = output_data[i];
-                max_index = i;
-            }
-        }
-    } else if (output->type == kTfLiteInt8) {
-        int8_t* output_data = output->data.int8;
-        float scale = output->params.scale;
-        int zero_point = output->params.zero_point;
-        
-        for (int i = 0; i < output->dims->data[1]; i++) {
-            float prob = (output_data[i] - zero_point) * scale;
-            if (prob > max_prob) {
-                max_prob = prob;
-                max_index = i;
-            }
-        }
-    }
-    
-    // Map to class name
-    if (max_index < NUM_CLASSES) {
-        strncpy(result->predicted_class, s_class_names[max_index], 
-                sizeof(result->predicted_class) - 1);
-    } else {
-        snprintf(result->predicted_class, sizeof(result->predicted_class), 
-                 "CLASS_%d", max_index);
-    }
-    
-    result->confidence = max_prob;
-    result->num_classes = output->dims->data[1];
-    result->is_voted_result = false;
-    
-    // Free arena memory
-    free(arena);
-    
-    return true;
+    return success;
+    #else
+    ESP_LOGW(TAG, "TFLite inference requested but not enabled");
+    return false;
+    #endif
 }
-#endif
 
 // Initialize inference engine
 bool inference_init(inference_engine_t *engine, inference_config_t *config) {
     if (!engine || !config) {
+        ESP_LOGE(TAG, "Invalid engine or config");
         return false;
     }
     
     memset(engine, 0, sizeof(inference_engine_t));
-    
-    // Copy configuration
     engine->config = *config;
     engine->mode = config->mode;
     
     #if TFLITE_ENABLED
-    // Initialize TFLite if requested
     if (config->mode == INFERENCE_MODE_TFLITE) {
-        engine->initialized = true;
+        // Use the model selected in Kconfig
+        engine->model_data = (void*)SELECTED_MODEL_DATA;
+        engine->model_size = SELECTED_MODEL_SIZE;
+        
+        if (!engine->model_data || engine->model_size == 0) {
+            ESP_LOGE(TAG, "Failed to load model data for Kconfig-selected model");
+            return false;
+        }
+        
+        ESP_LOGI(TAG, "Loaded Kconfig-selected model type %d (%u bytes)", 
+                 SELECTED_MODEL_TYPE, (unsigned int)engine->model_size);
+        
+        // Check arena size requirement
         #ifdef CONFIG_DETAILED_LOGGING
-        ESP_LOGI(TAG, "TensorFlow Lite inference engine initialized");
+        size_t arena_size = tflite_get_arena_size(engine->model_data, engine->model_size);
+        if (arena_size > 0) {
+            ESP_LOGI(TAG, "TFLite arena required: %u bytes", (unsigned int)arena_size);
+        }
         #endif
+        
+        engine->initialized = true;
         return true;
     }
     #endif
     
-    // Fallback to heuristic mode
+    // Fallback modes (heuristic/simulated)
     engine->initialized = true;
-    
-    #ifdef CONFIG_DETAILED_LOGGING
-    switch (config->mode) {
-        case INFERENCE_MODE_HEURISTIC:
-            ESP_LOGI(TAG, "Heuristic inference engine initialized");
-            break;
-        case INFERENCE_MODE_FFT_BASED:
-            ESP_LOGI(TAG, "FFT-based inference engine initialized");
-            break;
-        default:
-            ESP_LOGI(TAG, "Simulated inference engine initialized");
-            break;
-    }
-    #endif
-    
+    ESP_LOGI(TAG, "Heuristic inference engine initialized");
     return true;
 }
 
@@ -323,6 +276,7 @@ bool inference_run(inference_engine_t *engine,
                    int num_samples, 
                    inference_result_t *result) {
     if (!engine || !engine->initialized || !samples || !result || num_samples <= 0) {
+        ESP_LOGE(TAG, "Invalid parameters for inference_run");
         return false;
     }
     
@@ -418,14 +372,42 @@ void inference_get_memory_usage(inference_engine_t *engine,
     
     if (engine) {
         #if TFLITE_ENABLED
-        if (engine->model_data) {
-            if (flash_kb) {
-                *flash_kb = engine->model_size / 1024;
-            }
-            if (ram_kb) {
-                *ram_kb = 50;  // Reduced estimate
+        if (engine->model_data && flash_kb) {
+            *flash_kb = (engine->model_size + 1023) / 1024;  // Round up to KB
+        }
+        
+        if (ram_kb) {
+            // Estimate RAM usage
+            if (engine->mode == INFERENCE_MODE_TFLITE) {
+                size_t arena_size = tflite_get_arena_size(engine->model_data, engine->model_size);
+                *ram_kb = (arena_size + 1023) / 1024;  // Round up to KB
+            } else {
+                *ram_kb = 2;  // Heuristic inference uses minimal RAM
             }
         }
         #endif
     }
+}
+
+// Keep the original header functions
+bool inference_run_with_voting(inference_engine_t *engine,
+                               inference_config_t *config,
+                               float *samples,
+                               int buffer_size,
+                               inference_result_t *final_result) {
+    // Simple implementation - average confidence over last N inferences
+    static inference_result_t results[10];
+    static int result_idx = 0;
+    
+    // Run single inference
+    if (!inference_run(engine, samples, buffer_size, &results[result_idx])) {
+        return false;
+    }
+    
+    // Simple voting: just return the latest result
+    // For proper voting, you'd track multiple results and choose the most common
+    memcpy(final_result, &results[result_idx], sizeof(inference_result_t));
+    
+    result_idx = (result_idx + 1) % 10;
+    return true;
 }

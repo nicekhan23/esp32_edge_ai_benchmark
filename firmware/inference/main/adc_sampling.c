@@ -4,7 +4,6 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "soc/soc_caps.h"
-#include "stdio.h"
 
 static const char *TAG = "ADC_SAMPLING";
 
@@ -29,20 +28,7 @@ static const char *TAG = "ADC_SAMPLING";
 static adc_config_t s_adc_config;
 static TaskHandle_t s_conversion_task_handle = NULL;
 
-// Function to send ADC data over serial for Python to read
-static void adc_sampling_send_serial_debug(int16_t *buffer, size_t buffer_size)
-{    
-    printf("===ADC_START===\n");
-    printf("Samples: %d\n", buffer_size);
-    
-    for (int i = 0; i < buffer_size; i++) {
-        printf("%d\n", buffer[i]);
-    }
-    
-    printf("===ADC_END===\n");
-    ESP_LOGI("ADC_DEBUG", "Sent %d samples to serial", buffer_size);
-}
-
+// ADC conversion done callback
 static bool IRAM_ATTR conversion_done_callback(adc_continuous_handle_t handle, 
                                                const adc_continuous_evt_data_t *edata, 
                                                void *user_data)
@@ -52,6 +38,7 @@ static bool IRAM_ATTR conversion_done_callback(adc_continuous_handle_t handle,
     return (mustYield == pdTRUE);
 }
 
+// Initialize ADC continuous sampling
 adc_continuous_handle_t adc_sampling_init(void)
 {
     esp_err_t ret;
@@ -92,7 +79,7 @@ adc_continuous_handle_t adc_sampling_init(void)
     
     ret = adc_continuous_config(handle, &adc_cont_cfg);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to config ADC: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to configure ADC: %s", esp_err_to_name(ret));
         adc_continuous_deinit(handle);
         return NULL;
     }
@@ -130,6 +117,7 @@ adc_continuous_handle_t adc_sampling_init(void)
     return handle;
 }
 
+// Read samples from ADC
 esp_err_t adc_sampling_read(adc_continuous_handle_t handle, 
                             int16_t *buffer, 
                             size_t buffer_size, 
@@ -172,12 +160,10 @@ esp_err_t adc_sampling_read(adc_continuous_handle_t handle,
         }
     }
     
-    // Send debug data to serial
-    adc_sampling_send_serial_debug(buffer, num_samples);
-    
     return ESP_OK;
 }
 
+// Deinitialize ADC
 void adc_sampling_deinit(adc_continuous_handle_t handle)
 {
     if (handle) {
@@ -187,50 +173,10 @@ void adc_sampling_deinit(adc_continuous_handle_t handle)
     }
 }
 
+// Get current ADC configuration
 void adc_sampling_get_config(adc_config_t *config)
 {
     if (config) {
         memcpy(config, &s_adc_config, sizeof(adc_config_t));
     }
-}
-
-/**
- * @brief Get randomized window from buffer
- * 
- * @param buffer Input circular buffer
- * @param buffer_size Total buffer size
- * @param window_size Requested window size
- * @param window_out Output window buffer
- * @param randomize Enable random offset
- * @return int Actual window size copied
- */
-int get_randomized_window(float *buffer, int buffer_size, int window_size, 
-                          float *window_out, bool randomize) {
-    if (!buffer || !window_out || window_size <= 0 || buffer_size < window_size) {
-        return 0;
-    }
-    
-    // Calculate start position
-    int start_pos = 0;
-    if (randomize) {
-        // Random offset within safe range
-        int max_offset = buffer_size - window_size;
-        if (max_offset > 0) {
-            start_pos = rand() % max_offset;
-        }
-    }
-    
-    // Copy window (handle wrap-around if needed)
-    int samples_to_copy = window_size;
-    if (start_pos + window_size > buffer_size) {
-        // Need to wrap around
-        int first_part = buffer_size - start_pos;
-        memcpy(window_out, &buffer[start_pos], first_part * sizeof(float));
-        memcpy(&window_out[first_part], buffer, (window_size - first_part) * sizeof(float));
-    } else {
-        // Simple copy
-        memcpy(window_out, &buffer[start_pos], window_size * sizeof(float));
-    }
-    
-    return window_size;
 }

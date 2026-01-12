@@ -32,4 +32,25 @@ menu "Signal Inference Configuration"
         help
             ESP_LOG level (0-5, higher = more verbose).
 
+    choice MODEL_SELECTION
+        prompt "Select Model"
+        default MODEL_CNN_INT8
+        help
+            Select which model to include in the firmware.
+            
+        config MODEL_CNN_INT8
+            bool "CNN INT8 Model"
+        config MODEL_CNN_FLOAT32
+            bool "CNN Float32 Model"
+        config MODEL_MLP_FLOAT32
+            bool "MLP Float32 Model"
+        config MODEL_MLP_INT8
+            bool "MLP INT8 Model"
+        config MODEL_HYBRID_FLOAT32
+            bool "Hybrid Float32 Model"
+        config MODEL_HYBRID_INT8
+            bool "Hybrid INT8 Model"
+        config MODEL_HEURISTIC_ONLY
+            bool "Heuristic Only (No TFLite)"
+    endchoice
 endmenu
