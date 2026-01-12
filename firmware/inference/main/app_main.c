@@ -19,6 +19,7 @@
 #include "system_monitor.h"
 #include "data_collection.h" // For data collection functions
 #include "signal_processing.h"
+#include "benchmark.h"
 
 static const char *TAG = "SIGNAL_INFERENCE";
 
@@ -132,6 +133,13 @@ static void adc_sampling_task(void *arg)
 // Inference task
 static void inference_task(void *arg)
 {
+    // Initialize benchmark system
+    model_benchmark_init();
+    
+    // Track when to run benchmarks
+    static uint32_t inference_count = 0;
+    static const uint32_t BENCHMARK_INTERVAL = 50; // Run benchmark every 50 inferences
+
     // Initialize inference engine
     inference_engine_t engine;
     inference_config_t config = {
@@ -181,6 +189,36 @@ static void inference_task(void *arg)
             // Preprocessing
             memcpy(g_processed_samples, g_samples, SAMPLE_WINDOW_SIZE * sizeof(float));
             preprocess_samples_fixed(g_processed_samples, SAMPLE_WINDOW_SIZE, PREPROCESS_ALL);
+
+            // ✅ ADD BENCHMARK TRIGGER HERE
+            inference_count++;
+            if (inference_count % BENCHMARK_INTERVAL == 0) {
+                // Run benchmark with current samples
+                ESP_LOGI(TAG, "Running periodic benchmark...");
+                run_benchmark_suite(g_processed_samples, SAMPLE_WINDOW_SIZE, current_label);
+                
+                // Get and display recommendations
+                model_benchmark_t results[10];
+                int num_results = model_get_benchmark_results(results, 10);
+                
+                for (int i = 0; i < num_results; i++) {
+                    ESP_LOGI(TAG, "Model: %s, Acc: %.2f%%, Time: %uus, Flash: %uKB, RAM: %uKB",
+                             results[i].name,
+                             results[i].accuracy * 100,
+                             results[i].inference_time_us,
+                             (unsigned int)results[i].flash_size_kb,
+                             (unsigned int)results[i].ram_usage_kb);
+                }
+                
+                // Get recommendation for constraints
+                model_type_t recommended = model_get_recommended(
+                    512,    // Max 512KB flash
+                    128,    // Max 128KB RAM
+                    0.85f   // Min 85% accuracy
+                );
+                
+                ESP_LOGI(TAG, "Recommended model: %d", (int)recommended);
+            }
             
             // Perform inference
             inference_result_t result;

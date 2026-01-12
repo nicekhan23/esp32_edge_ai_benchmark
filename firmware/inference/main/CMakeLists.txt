@@ -8,6 +8,13 @@ idf_component_register(SRCS "app_main.c"
                               "system_health.c"
                               "data_collection.c"
                               "benchmark.c"
+                              "../arrays/cnn_float32_model.c"
+                              "../arrays/cnn_int8_model.c"
+                              "../arrays/mlp_float32_model.c"
+                              "../arrays/mlp_int8_model.c"
+                              "../arrays/hybrid_float32_model.c"
+                              "../arrays/hybrid_int8_model.c"
+                       INCLUDE_DIRS "." "../arrays"
                        INCLUDE_DIRS "."
                        REQUIRES freertos esp_adc driver esp_timer esp_common esp_system)
 

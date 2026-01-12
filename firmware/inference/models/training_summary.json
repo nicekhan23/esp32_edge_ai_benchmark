@@ -1,0 +1,24 @@
+{
+  "dataset": {
+    "total_samples": 20000,
+    "train_samples": 14000,
+    "val_samples": 3000,
+    "test_samples": 3000,
+    "classes": [
+      "SAWTOOTH",
+      "SINE",
+      "SQUARE",
+      "TRIANGLE"
+    ]
+  },
+  "model_performance": {
+    "cnn_accuracy": 0.9990000128746033,
+    "mlp_accuracy": 0.9990000128746033,
+    "hybrid_accuracy": 0.9990000128746033
+  },
+  "model_sizes_kb": {
+    "cnn_int8": 57.3046875,
+    "mlp_int8": 51.5703125,
+    "hybrid_int8": 46.8828125
+  }
+}

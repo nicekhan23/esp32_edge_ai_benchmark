@@ -23,7 +23,7 @@ typedef struct {
 } waveform_config_t;
 
 // Configuration
-#define DAC_CONVERT_FREQ_HZ     40000    // 40 kHz sample rate
+#define DAC_CONVERT_FREQ_HZ     20000    // 20 kHz sample rate
 #define DAC_BUFFER_SIZE         257      // PRIME number to avoid periodicity
 #define DEFAULT_AMPLITUDE       1.0f
 #define DEFAULT_DC_OFFSET       0.0f
