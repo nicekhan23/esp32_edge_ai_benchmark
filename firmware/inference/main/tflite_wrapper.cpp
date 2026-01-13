@@ -70,14 +70,36 @@ extern "C" bool tflite_inference_cpp(void* model_data,
         return false;
     }
     
-    // Create op resolver
-    static tflite::MicroMutableOpResolver<6> resolver;
+    // Create op resolver - increase the number significantly
+    static tflite::MicroMutableOpResolver<19> resolver;  // Increased from 12 to 20
+
+    // Basic operations
     resolver.AddFullyConnected();
     resolver.AddSoftmax();
     resolver.AddConv2D();
     resolver.AddMaxPool2D();
     resolver.AddReshape();
     resolver.AddQuantize();
+
+    // Additional operations that might be needed for CNN models
+    resolver.AddExpandDims();
+    resolver.AddDequantize();
+    resolver.AddRelu();
+    resolver.AddAveragePool2D();
+    resolver.AddStridedSlice();
+    resolver.AddPack();
+    resolver.AddConcatenation();
+
+    // NEW: Add missing operations from error
+    resolver.AddMul();           // This was missing!
+    resolver.AddAdd();
+    resolver.AddSub();
+    resolver.AddDiv();
+    resolver.AddPad();
+    resolver.AddMean();
+    resolver.AddSqueeze();
+    resolver.AddLeakyRelu();
+    resolver.AddTranspose();     // Transpose operation
     
     // Allocate arena - start with 32KB and adjust based on your model
     constexpr size_t kTensorArenaSize = 32 * 1024;

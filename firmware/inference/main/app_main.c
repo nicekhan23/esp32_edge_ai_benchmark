@@ -295,7 +295,7 @@ void app_main(void)
     // Create tasks with proper priorities
     xTaskCreate(uart_receive_task, "uart_rx", 4096, NULL, 5, NULL);
     xTaskCreate(adc_sampling_task, "adc_sampling", 4096, NULL, 6, &s_adc_task_handle);
-    xTaskCreate(inference_task, "inference", 8192, NULL, 4, &s_inference_task_handle);
+    xTaskCreate(inference_task, "inference", 12288, NULL, 4, &s_inference_task_handle);
     
     // Create monitoring task
     xTaskCreate(metrics_monitor_task, "metrics", 4096, NULL, 3, NULL);
